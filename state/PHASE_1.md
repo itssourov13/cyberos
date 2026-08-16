@@ -9,7 +9,7 @@
 | 1E   | Control Plane                     | **Done**   |
 | 1F   | Capability Registry + Task Engine | **Done**   |
 | 1G   | Execution Grant + Safe Mock Broker| **Done**   |
-| 1H   | Evidence + Findings + Provenance  | Pending    |
+| 1H   | Evidence + Findings + Provenance  | **Done**   |
 | 1I   | Events + Audit                    | Pending    |
 | 1J   | API v1 + CLI + SDK                | Pending    |
 | 1K   | Full Integration + Security Tests | Pending    |

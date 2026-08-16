@@ -1,0 +1,114 @@
+// Package findings provides services for creating structured Findings
+// derived from Evidence.
+package findings
+
+import (
+	"fmt"
+	"sync"
+
+	"cyberos/internal/contracts"
+	domainfinding "cyberos/internal/domain/finding"
+	"cyberos/internal/evidence"
+)
+
+// Service records and retrieves Findings.
+type Service struct {
+	mu       sync.RWMutex
+	items    map[contracts.FindingID]*domainfinding.Finding
+	evidence *evidence.Service
+}
+
+// NewService constructs a findings service.
+// evidenceSvc is used to verify supporting evidence exists and is linked.
+func NewService(evidenceSvc *evidence.Service) *Service {
+	return &Service{
+		items:    make(map[contracts.FindingID]*domainfinding.Finding),
+		evidence: evidenceSvc,
+	}
+}
+
+// CreateRequest carries data for a new finding.
+type CreateRequest struct {
+	ID            contracts.FindingID
+	TaskID        contracts.TaskID
+	ProjectID     contracts.ProjectID
+	ScopeID       contracts.ScopeID
+	Severity      contracts.FindingSeverity
+	Title         string
+	Description   string
+	EvidenceIDs   []contracts.EvidenceID
+	CorrelationID contracts.CorrelationID
+}
+
+// Create builds a Finding that references supporting Evidence.
+// Each evidence ID must exist and be linked to the same task when possible.
+func (s *Service) Create(req CreateRequest) (*domainfinding.Finding, error) {
+	if s == nil {
+		return nil, fmt.Errorf("%w: findings service not configured", contracts.ErrInvalidArgument)
+	}
+	f, err := domainfinding.New(req.ID, req.TaskID, req.ProjectID, req.ScopeID, req.Severity, req.Title)
+	if err != nil {
+		return nil, err
+	}
+	f.Description = req.Description
+	f.CorrelationID = req.CorrelationID
+
+	for _, eid := range req.EvidenceIDs {
+		if s.evidence != nil {
+			ev, err := s.evidence.Get(eid)
+			if err != nil {
+				return nil, fmt.Errorf("%w: evidence %s: %v", contracts.ErrInvalidArgument, eid, err)
+			}
+			if err := evidence.EnsureLinked(ev); err != nil {
+				return nil, err
+			}
+			// Prefer same-task linkage
+			if ev.TaskID != req.TaskID {
+				return nil, fmt.Errorf("%w: evidence %s task mismatch", contracts.ErrInvalidArgument, eid)
+			}
+		}
+		f.AddEvidence(eid)
+	}
+
+	if err := f.Validate(); err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.items[f.ID]; exists {
+		return nil, contracts.ErrConflict
+	}
+	cp := *f
+	s.items[f.ID] = &cp
+	return &cp, nil
+}
+
+// Get returns a finding by ID.
+func (s *Service) Get(id contracts.FindingID) (*domainfinding.Finding, error) {
+	if s == nil {
+		return nil, fmt.Errorf("%w: findings service not configured", contracts.ErrInvalidArgument)
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	f, ok := s.items[id]
+	if !ok {
+		return nil, contracts.ErrNotFound
+	}
+	cp := *f
+	return &cp, nil
+}
+
+// ListByTask returns findings for a task.
+func (s *Service) ListByTask(taskID contracts.TaskID) []*domainfinding.Finding {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []*domainfinding.Finding
+	for _, f := range s.items {
+		if f.TaskID == taskID {
+			cp := *f
+			out = append(out, &cp)
+		}
+	}
+	return out
+}

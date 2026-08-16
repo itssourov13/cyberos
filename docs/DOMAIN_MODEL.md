@@ -76,3 +76,18 @@ Domain packages import only `internal/contracts` and the Go standard library.
 - Create validates: active principal, active scope, known capability
 - Transition enforces explicit state machine; illegal transitions → `ErrInvalidStateTransition`
 - Does **not** issue ExecutionGrants or invoke Tool Broker
+
+## Phase 1H — Evidence / Findings / Provenance (Implemented)
+
+### Evidence (`internal/evidence`)
+- Recorded from ExecutionResult + ExecutionGrant
+- Always linked to principal, project, scope, task, capability, grant
+- Digest stub for integrity
+
+### Findings (`internal/findings`)
+- Derived observations referencing Evidence IDs
+- Rejects missing evidence or task mismatch
+
+### Provenance (`internal/provenance`)
+- WHO / WHAT / WHEN / WHERE (project/scope/task) / capability / grant / executor
+- Parent IDs for findings → evidence lineage
