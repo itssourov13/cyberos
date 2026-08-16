@@ -1,32 +1,23 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-16 (Phase 1B complete)
+**Last Updated:** 2026-08-16 (Phase 1C complete)
 
 ## Implemented
 
 ### Phase 0 — Foundation
-- [x] Repository, module, structure, docs, state, config, versioning
-
 ### Phase 1A — Contracts
-- [x] Stable infrastructure-neutral contracts (`internal/contracts`)
-
 ### Phase 1B — Domain
-- [x] Project, Asset, Scope, Task, Principal, Capability
-- [x] Policy / Permission / Risk / Approval result helpers
-- [x] ExecutionGrant domain wrapper with EnsureUsable / MatchesContext
-- [x] Evidence, Finding, Provenance
-- [x] Explicit Task state machine with illegal-transition rejection
-- [x] Comprehensive unit tests for construction, validation, transitions, expiration, context matching
-- [x] Domain imports only contracts + stdlib
+### Phase 1C — Persistence
+- [x] Repository ports (`internal/storage/ports`)
+- [x] PostgreSQL adapter for Project, Asset, Scope, Task, Principal, Capability
+- [x] Versioned migration `migrations/001_init.sql`
+- [x] Config support for `CYBEROS_DATABASE_URL`
+- [x] Integration tests (tag `integration`) against real PostgreSQL
+- [x] Domain remains pure (no SQL imports)
 
 ## Not Yet Implemented
-
-- Persistence / PostgreSQL (1C)
-- Identity + Scope services beyond pure entities (1D)
-- Control Plane (1E)
-- Capability Registry + Task Engine services (1F)
-- Grant issuance + mock Tool Broker (1G)
-- Evidence / Findings / Provenance services (1H)
-- Events / Audit implementation (1I)
-- API v1 / CLI / SDK (1J)
-- Full integration + security suite (1K)
+- 1D Identity + Scope services
+- 1E Control Plane
+- 1F Capability Registry + Task Engine
+- 1G Execution Grant + Mock Tool Broker
+- 1H–1K remaining Phase 1 steps

@@ -1,3 +1,10 @@
-// Package storage is part of the CYBEROS core.
-// Phase 0 Foundation: package boundary established; implementation begins in later phases.
+// Package storage contains persistence ports and adapters.
+//
+//	Domain / Application
+//	        ↓
+//	storage/ports (interfaces)
+//	        ↓
+//	storage/postgres (PostgreSQL adapter)
+//
+// Domain must never import this package or any SQL driver.
 package storage

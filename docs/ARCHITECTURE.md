@@ -171,3 +171,9 @@ flowchart TD
 Implemented domain packages: project, asset, scope, task, principal, capability, grant, evidence, finding, provenance, plus thin policy/permission/risk/approval helpers.
 
 Task carries an explicit, tested state machine. ExecutionGrant domain helpers enforce usability and context matching.
+
+## 8. Phase 1C — Persistence (Implemented)
+
+Repository ports live in `internal/storage/ports`.  
+PostgreSQL adapter lives in `internal/storage/postgres`.  
+Domain remains free of SQL.

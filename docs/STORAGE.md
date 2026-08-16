@@ -1,32 +1,40 @@
 # CYBEROS Storage Architecture
 
-**Phase 0 Foundation Document**
-
-## Initial Choice
-
-PostgreSQL.
+**Phase 1C — Persistence (Implemented)**
 
 ## Layering
 
 ```
 Domain
   ↓
-Repository Interfaces (ports)
+Repository Interfaces (internal/storage/ports)
   ↓
-PostgreSQL Adapter
+PostgreSQL Adapter (internal/storage/postgres)
 ```
 
-Domain code must never import SQL drivers or PostgreSQL-specific types.
+Domain code never imports SQL drivers or PostgreSQL types.
 
-## Future Possibilities
+## Initial Schema (migration 001_init.sql)
 
-- SQLite for local / single-user mode
-- S3-compatible object storage for large evidence
-- Specialized stores as needed
+Tables:
+- `projects`
+- `principals`
+- `assets` (FK → projects)
+- `scopes` (FK → projects)
+- `capabilities`
+- `tasks` (FK → projects, scopes, principals, capabilities)
+- `schema_migrations`
 
-Do **not** introduce multiple databases in Phase 0/1.
+## Configuration
+
+```
+CYBEROS_DATABASE_URL=postgres://cyberos:cyberos@localhost:5432/cyberos?sslmode=disable
+```
 
 ## Migrations
 
-SQL migrations will live under `migrations/`.  
-Managed via a migration tool (to be selected in Phase 1).
+SQL files under `migrations/` applied in lexical order via `postgres.ApplyMigrations`.
+
+## Tests
+
+Integration tests (build tag `integration`) exercise create/get/update round-trips against a real PostgreSQL instance.
