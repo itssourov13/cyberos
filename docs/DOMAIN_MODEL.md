@@ -61,3 +61,18 @@ SUCCEEDED / FAILED / CANCELLED / EXPIRED → (terminal)
 ## Purity
 
 Domain packages import only `internal/contracts` and the Go standard library.
+
+## Phase 1F — Capability Registry + Task Engine (Implemented)
+
+### Capability Registry (`internal/capability`)
+
+- Register / Get / List / RequireKnown / Descriptor
+- **Discovery only** — never implies authorization
+- Unknown or inactive capabilities → `ErrCapabilityUnknown`
+
+### Task Engine (`internal/taskengine`)
+
+- Create tasks bound to Project + Scope + Principal + Capability
+- Create validates: active principal, active scope, known capability
+- Transition enforces explicit state machine; illegal transitions → `ErrInvalidStateTransition`
+- Does **not** issue ExecutionGrants or invoke Tool Broker

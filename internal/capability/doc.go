@@ -1,3 +1,6 @@
-// Package capability is part of the CYBEROS core.
-// Phase 0 Foundation: package boundary established; implementation begins in later phases.
+// Package capability provides the Capability Registry.
+//
+// Discovery ≠ authorization.
+// A capability being registered or listed never grants permission to use it.
+// Authorization remains the sole responsibility of the Control Plane.
 package capability

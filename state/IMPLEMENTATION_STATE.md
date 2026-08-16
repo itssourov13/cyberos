@@ -1,19 +1,18 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-16 (Phase 1E complete)
+**Last Updated:** 2026-08-16 (Phase 1F complete)
 
 ## Implemented
 
-### Phase 0–1D
-### Phase 1E — Control Plane
-- [x] `internal/controlplane.Service.Evaluate` — full chain
-- [x] Structured Decision (never bare bool)
-- [x] Explicit denials with reasons
-- [x] Pluggable Policy / Permission / Risk / Approval evaluators
-- [x] Default evaluators for Phase 1
+### Phase 0–1E
+### Phase 1F — Capability Registry + Task Engine
+- [x] Capability Registry (discovery only)
+- [x] Task Engine (create + explicit transitions)
+- [x] Capability discovery ≠ authorization (enforced by design)
+- [x] Tasks bound to Project/Scope/Principal/Capability
+- [x] Illegal state transitions rejected
 - [x] Unit + security tests
 
 ## Not Yet Implemented
-- 1F Capability Registry + Task Engine
-- 1G Execution Grant + Mock Tool Broker
+- 1G Execution Grant + Safe Mock Tool Broker
 - 1H–1K remaining
