@@ -1,0 +1,300 @@
+// Package audit records security-critical decisions and actions.
+// The audit trail is append-only in spirit and suitable for forensic reconstruction.
+package audit
+
+import (
+	"fmt"
+	"sync"
+	"time"
+
+	"cyberos/internal/contracts"
+	"cyberos/internal/events"
+)
+
+// Entry is a single audit record.
+type Entry struct {
+	ID            contracts.AuditID
+	Action        string
+	Timestamp     time.Time
+	Principal     *contracts.PrincipalRef
+	ProjectID     contracts.ProjectID
+	ScopeID       contracts.ScopeID
+	TaskID        contracts.TaskID
+	DecisionID    contracts.DecisionID
+	GrantID       contracts.ExecutionGrantID
+	CorrelationID contracts.CorrelationID
+	CausationID   contracts.CausationID
+	Outcome       string // e.g. ALLOWED, DENIED, SUCCEEDED
+	Reason        string
+	Metadata      map[string]string
+}
+
+// Service is an append-only audit log that also emits Events.
+type Service struct {
+	mu      sync.RWMutex
+	entries []Entry
+	events  *events.Store
+}
+
+// NewService constructs an audit service.
+// events store may be nil (audit-only) but production wiring should supply it.
+func NewService(eventStore *events.Store) *Service {
+	return &Service{
+		entries: make([]Entry, 0, 64),
+		events:  eventStore,
+	}
+}
+
+// RecordDecision audits a Control Plane decision and emits an event.
+func (s *Service) RecordDecision(d contracts.Decision) (Entry, error) {
+	action := "controlplane.decision"
+	outcome := string(d.Outcome)
+	eventType := events.TypeDecisionDenied
+	if d.Allowed() {
+		eventType = events.TypeDecisionAllowed
+	}
+	var principal *contracts.PrincipalRef
+	if d.Principal.ID != "" {
+		p := d.Principal
+		principal = &p
+	}
+	return s.append(Entry{
+		ID:            contracts.AuditID("audit-" + string(d.ID)),
+		Action:        action,
+		Timestamp:     d.Timestamp,
+		Principal:     principal,
+		ProjectID:     d.ProjectID,
+		ScopeID:       d.ScopeID,
+		TaskID:        d.TaskID,
+		DecisionID:    d.ID,
+		CorrelationID: d.CorrelationID,
+		Outcome:       outcome,
+		Reason:        d.Reason,
+	}, eventType, map[string]any{
+		"decision_id":   string(d.ID),
+		"outcome":       outcome,
+		"reason":        d.Reason,
+		"capability_id": string(d.CapabilityID),
+	})
+}
+
+// RecordGrantIssued audits grant issuance.
+func (s *Service) RecordGrantIssued(g contracts.ExecutionGrant) (Entry, error) {
+	var principal *contracts.PrincipalRef
+	if g.Principal.ID != "" {
+		p := g.Principal
+		principal = &p
+	}
+	return s.append(Entry{
+		ID:            contracts.AuditID("audit-grant-" + string(g.ID)),
+		Action:        "grant.issued",
+		Timestamp:     g.IssuedAt,
+		Principal:     principal,
+		ProjectID:     g.ProjectID,
+		ScopeID:       g.ScopeID,
+		TaskID:        g.TaskID,
+		GrantID:       g.ID,
+		CorrelationID: g.CorrelationID,
+		Outcome:       "ISSUED",
+		Reason:        "execution grant issued",
+	}, events.TypeGrantIssued, map[string]any{
+		"grant_id":      string(g.ID),
+		"capability_id": string(g.CapabilityID),
+		"expires_at":    g.ExpiresAt.UTC().Format(time.RFC3339),
+		"nonce":         g.Nonce,
+	})
+}
+
+// RecordExecution audits an execution result under a grant.
+func (s *Service) RecordExecution(g contracts.ExecutionGrant, res contracts.ExecutionResult) (Entry, error) {
+	eventType := events.TypeExecutionSucceeded
+	switch res.Status {
+	case contracts.ExecutionStatusFailed:
+		eventType = events.TypeExecutionFailed
+	case contracts.ExecutionStatusRejected:
+		eventType = events.TypeExecutionRejected
+	}
+	var principal *contracts.PrincipalRef
+	if g.Principal.ID != "" {
+		p := g.Principal
+		principal = &p
+	}
+	return s.append(Entry{
+		ID:            contracts.AuditID(fmt.Sprintf("audit-exec-%s-%d", g.ID, res.FinishedAt.UnixNano())),
+		Action:        "execution." + string(res.Status),
+		Timestamp:     res.FinishedAt,
+		Principal:     principal,
+		ProjectID:     g.ProjectID,
+		ScopeID:       g.ScopeID,
+		TaskID:        g.TaskID,
+		GrantID:       g.ID,
+		CorrelationID: firstNonEmpty(res.CorrelationID, g.CorrelationID),
+		Outcome:       string(res.Status),
+		Reason:        res.ErrorMessage,
+		Metadata:      map[string]string{"executor_id": res.ExecutorID},
+	}, eventType, map[string]any{
+		"grant_id":    string(g.ID),
+		"status":      string(res.Status),
+		"executor_id": res.ExecutorID,
+		"error":       res.ErrorMessage,
+	})
+}
+
+// RecordEvidence audits evidence recording.
+func (s *Service) RecordEvidence(
+	evidenceID contracts.EvidenceID,
+	grant contracts.ExecutionGrant,
+	correlationID contracts.CorrelationID,
+) (Entry, error) {
+	var principal *contracts.PrincipalRef
+	if grant.Principal.ID != "" {
+		p := grant.Principal
+		principal = &p
+	}
+	return s.append(Entry{
+		ID:            contracts.AuditID("audit-ev-" + string(evidenceID)),
+		Action:        "evidence.recorded",
+		Timestamp:     time.Now().UTC(),
+		Principal:     principal,
+		ProjectID:     grant.ProjectID,
+		ScopeID:       grant.ScopeID,
+		TaskID:        grant.TaskID,
+		GrantID:       grant.ID,
+		CorrelationID: firstNonEmpty(correlationID, grant.CorrelationID),
+		Outcome:       "RECORDED",
+		Reason:        "evidence recorded",
+		Metadata:      map[string]string{"evidence_id": string(evidenceID)},
+	}, events.TypeEvidenceRecorded, map[string]any{
+		"evidence_id": string(evidenceID),
+		"grant_id":    string(grant.ID),
+	})
+}
+
+// RecordFinding audits finding creation.
+func (s *Service) RecordFinding(
+	findingID contracts.FindingID,
+	taskID contracts.TaskID,
+	projectID contracts.ProjectID,
+	scopeID contracts.ScopeID,
+	principal *contracts.PrincipalRef,
+	correlationID contracts.CorrelationID,
+) (Entry, error) {
+	return s.append(Entry{
+		ID:            contracts.AuditID("audit-finding-" + string(findingID)),
+		Action:        "finding.created",
+		Timestamp:     time.Now().UTC(),
+		Principal:     principal,
+		ProjectID:     projectID,
+		ScopeID:       scopeID,
+		TaskID:        taskID,
+		CorrelationID: correlationID,
+		Outcome:       "CREATED",
+		Reason:        "finding created",
+		Metadata:      map[string]string{"finding_id": string(findingID)},
+	}, events.TypeFindingCreated, map[string]any{
+		"finding_id": string(findingID),
+		"task_id":    string(taskID),
+	})
+}
+
+// RecordTaskStateChange audits a task state transition.
+func (s *Service) RecordTaskStateChange(
+	taskID contracts.TaskID,
+	projectID contracts.ProjectID,
+	scopeID contracts.ScopeID,
+	from, to contracts.TaskState,
+	correlationID contracts.CorrelationID,
+) (Entry, error) {
+	return s.append(Entry{
+		ID:            contracts.AuditID(fmt.Sprintf("audit-task-%s-%s", taskID, to)),
+		Action:        "task.state_changed",
+		Timestamp:     time.Now().UTC(),
+		ProjectID:     projectID,
+		ScopeID:       scopeID,
+		TaskID:        taskID,
+		CorrelationID: correlationID,
+		Outcome:       string(to),
+		Reason:        fmt.Sprintf("%s -> %s", from, to),
+	}, events.TypeTaskStateChanged, map[string]any{
+		"task_id": string(taskID),
+		"from":    string(from),
+		"to":      string(to),
+	})
+}
+
+// All returns a snapshot of audit entries in append order.
+func (s *Service) All() []Entry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]Entry, len(s.entries))
+	copy(out, s.entries)
+	return out
+}
+
+// ByCorrelation returns audit entries for a correlation ID.
+func (s *Service) ByCorrelation(id contracts.CorrelationID) []Entry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []Entry
+	for _, e := range s.entries {
+		if e.CorrelationID == id {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// Len returns the number of audit entries.
+func (s *Service) Len() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.entries)
+}
+
+func (s *Service) append(e Entry, eventType contracts.EventType, payload map[string]any) (Entry, error) {
+	if s == nil {
+		return Entry{}, fmt.Errorf("%w: audit service not configured", contracts.ErrInvalidArgument)
+	}
+	if e.Timestamp.IsZero() {
+		e.Timestamp = time.Now().UTC()
+	}
+	if e.CorrelationID == "" {
+		return Entry{}, fmt.Errorf("%w: correlation_id required for audit entry", contracts.ErrInvalidArgument)
+	}
+	if e.ID == "" {
+		return Entry{}, fmt.Errorf("%w: audit id required", contracts.ErrInvalidArgument)
+	}
+
+	s.mu.Lock()
+	s.entries = append(s.entries, e)
+	s.mu.Unlock()
+
+	if s.events != nil {
+		var causation contracts.CausationID
+		if e.CausationID != "" {
+			causation = e.CausationID
+		} else if e.DecisionID != "" {
+			causation = contracts.CausationID(e.DecisionID)
+		}
+		_, _ = s.events.Append(events.AppendRequest{
+			ID:            contracts.EventID("evt-" + string(e.ID)),
+			Type:          eventType,
+			Principal:     e.Principal,
+			ProjectID:     e.ProjectID,
+			ScopeID:       e.ScopeID,
+			TaskID:        e.TaskID,
+			CorrelationID: e.CorrelationID,
+			CausationID:   causation,
+			Payload:       payload,
+			Timestamp:     e.Timestamp,
+		})
+	}
+	return e, nil
+}
+
+func firstNonEmpty(a, b contracts.CorrelationID) contracts.CorrelationID {
+	if a != "" {
+		return a
+	}
+	return b
+}
