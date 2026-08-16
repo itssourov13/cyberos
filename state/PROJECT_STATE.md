@@ -3,7 +3,7 @@
 **Last Updated:** 2026-08-16
 
 ## Current
-**Phase 2D — Execution Lifecycle + Evidence/Findings Enrichment** (completed)
+**Phase 2 — Task + Execution System** COMPLETE (`v0.2.0-phase2`)
 
 ## Next
-Awaiting approval for Phase 2E / Phase 2 completion.
+Phase 3 not started — awaiting explicit approval.

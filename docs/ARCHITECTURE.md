@@ -194,3 +194,13 @@ records `ExecutionRecord` (task/grant/principal/scope/attempt/metrics), and enri
 Evidence / Findings / Provenance / Audit.
 
 Flow: Grant → Broker → Sandbox → Executor → Evidence (+ optional Finding) → Provenance
+
+## Phase 2 Status — COMPLETE
+
+Validated end-to-end:
+
+Task → Schedule → Dependencies → Retry/Timeout → Resource Policy/Sandbox →
+Control Plane → Grant → Broker → Execution Lifecycle → Evidence → Finding →
+Provenance → Audit
+
+Tag: `v0.2.0-phase2`

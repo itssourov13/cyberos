@@ -1,5 +1,5 @@
 # Handoff
 
-Phase 2D complete. Tag: `v0.2.0-phase2d`.
+Phase 2 complete. Tag: `v0.2.0-phase2`.
 
-Do not start Phase 2E without approval.
+Do not start Phase 3 without explicit approval.
