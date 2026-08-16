@@ -1,70 +1,63 @@
 # CYBEROS Domain Model
 
-**Phase 0 Foundation Document**
+**Phase 1B — Domain (Implemented)**
 
-## Core Concepts (First-Class)
+## Core Entities
 
-- **Project** — Top-level container for assets, scopes, and work.
-- **Asset** — Target or resource under management (host, domain, application, etc.).
-- **Scope** — Root authorization boundary. Constrains allowed assets, action classes, time windows, and status.
-- **Task** — Unit of work. Always bound to a scope and principal.
-- **Principal** — Who or what is acting (human, service, agent, plugin, ZOYA, etc.).
-- **Capability** — What is technically available (e.g. `recon.domain.enumerate`).
-- **Policy** — Rules that govern authorization decisions.
-- **Permission** — Concrete allowance derived from policy + principal + scope.
-- **Risk** — Risk evaluation associated with a requested action.
-- **Approval** — Human or policy-driven approval state when required.
-- **ExecutionGrant** — Short-lived, narrowly scoped authorization token for execution.
-- **Evidence** — Raw or structured output produced by execution.
-- **Finding** — Interpreted security result derived from evidence.
-- **Provenance** — Full lineage: who, what, when, where, why, under which scope/task/capability, produced by which tool/agent.
-- **Event** — Immutable record of something that happened.
-- **Audit** — Security-relevant trail for accountability.
-- **Report** — Aggregated view of findings and evidence (future).
+| Entity | Package | Role |
+|--------|---------|------|
+| Project | `internal/domain/project` | Top-level container |
+| Asset | `internal/domain/asset` | Target/resource within a project |
+| Scope | `internal/domain/scope` | Root authorization boundary |
+| Task | `internal/domain/task` | Unit of work with explicit state machine |
+| Principal | `internal/domain/principal` | Actor (HUMAN minimum; extensible) |
+| Capability | `internal/domain/capability` | Technically available action (≠ permission) |
+| ExecutionGrant | `internal/domain/grant` | Bounded authorization for execution |
+| Evidence | `internal/domain/evidence` | Output of an execution |
+| Finding | `internal/domain/finding` | Interpreted security observation |
+| Provenance | `internal/domain/provenance` | Full lineage (who/what/when/where/why) |
 
-## Conceptual Hierarchy
+Policy / Permission / Risk / Approval result helpers live under corresponding domain packages; full evaluation belongs to the Control Plane.
 
-```
-Project
- ├── Asset
- ├── Scope
- │    └── Task
- │         ├── Principal
- │         ├── Capability
- │         ├── Authorization
- │         ├── Policy
- │         ├── Permission
- │         ├── Risk
- │         ├── Approval
- │         └── ExecutionGrant
- │                └── Execution
- │                       ├── Evidence
- │                       ├── Finding
- │                       └── Provenance
- │
- └── Audit / Events
+## Hierarchy
+
+```mermaid
+flowchart TD
+    Project --> Asset
+    Project --> Scope
+    Scope --> Task
+    Task --> Principal
+    Task --> Capability
+    Task --> ExecutionGrant
+    ExecutionGrant --> Evidence
+    Evidence --> Finding
+    Evidence --> Provenance
+    Finding --> Provenance
 ```
 
-## Task States (Foundation)
+## Task State Machine
 
-Explicit states only. No arbitrary mutation.
+Explicit transitions only. Illegal transitions return `ErrInvalidStateTransition`.
 
-- CREATED
-- PENDING
-- AUTHORIZED
-- WAITING_APPROVAL
-- READY
-- RUNNING
-- SUCCEEDED
-- FAILED
-- CANCELLED
-- EXPIRED
+```
+CREATED → PENDING | CANCELLED | EXPIRED
+PENDING → AUTHORIZED | WAITING_APPROVAL | CANCELLED | EXPIRED
+AUTHORIZED → READY | WAITING_APPROVAL | CANCELLED | EXPIRED
+WAITING_APPROVAL → AUTHORIZED | CANCELLED | EXPIRED
+READY → RUNNING | CANCELLED | EXPIRED
+RUNNING → SUCCEEDED | FAILED | CANCELLED
+SUCCEEDED / FAILED / CANCELLED / EXPIRED → (terminal)
+```
 
-Future: scheduling, retries, dependencies, DAG workflows, worker queues, distributed execution, agent-created tasks.
+## Key Invariants
 
-## Design Rules
+- Scope is the authorization boundary; inactive/expired scopes are not active.
+- Task must belong to a project + scope and reference a principal + capability.
+- Capability existence does **not** imply authorization.
+- ExecutionGrant is time-bounded and context-bound; `EnsureUsable` rejects expired or mismatched grants.
+- Evidence is always linked to task + grant + principal + scope.
+- Provenance answers who/what/when/under which scope/task/capability/grant.
 
-- Do not reduce everything to generic JSON blobs.
-- Domain entities must remain pure (no infrastructure dependencies).
-- Repository interfaces live at the edge of the domain/application boundary.
-- Adapters implement those interfaces.
+## Purity
+
+Domain packages import only `internal/contracts` and the Go standard library.

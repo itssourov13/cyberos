@@ -156,3 +156,18 @@ flowchart TD
 - Defines stable error sentinels
 
 No implementations of Control Plane, Task Engine, Broker, persistence, API, or tools exist yet.
+
+## 7. Phase 1B — Domain Layer (Implemented)
+
+Pure domain entities live under `internal/domain/*` and depend only on `internal/contracts` + stdlib.
+
+```mermaid
+flowchart TD
+    C[Contracts]
+    D[Domain]
+    C --> D
+```
+
+Implemented domain packages: project, asset, scope, task, principal, capability, grant, evidence, finding, provenance, plus thin policy/permission/risk/approval helpers.
+
+Task carries an explicit, tested state machine. ExecutionGrant domain helpers enforce usability and context matching.

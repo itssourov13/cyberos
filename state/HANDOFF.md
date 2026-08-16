@@ -4,21 +4,10 @@
 
 ## Current Checkpoint
 
-Phase 1A — Contracts is complete and will be tagged.
-
-## Workspace
-
-Persistent workspace: `/home/workdir/artifacts/cyberos`
-
-## What was delivered in 1A
-
-- `internal/contracts` package with all core contract types and interfaces.
-- Structured Decision, ExecutionGrant, EventEnvelope, ToolBroker/Executor boundaries.
-- Unit tests for structural invariants.
-- Zero infrastructure dependencies.
+Phase 1B — Domain is complete and will be tagged `v0.1.0-phase1b`.
 
 ## Immediate Next Step
 
-Await explicit approval to begin **Phase 1B — Domain**.
+Await explicit approval to begin **Phase 1C — Persistence**.
 
-Do not implement domain entities, persistence, or any later phase without approval.
+Do not implement persistence, Control Plane, Tool Broker, or any later phase without approval.
