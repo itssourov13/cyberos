@@ -1,3 +1,3 @@
-// Package execution is part of the CYBEROS core.
-// Phase 0 Foundation: package boundary established; implementation begins in later phases.
+// Package execution contains executor implementations.
+// Phase 1G provides only the safe mock executor under execution/mock.
 package execution

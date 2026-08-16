@@ -1,18 +1,18 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-16 (Phase 1F complete)
+**Last Updated:** 2026-08-16 (Phase 1G complete)
 
 ## Implemented
 
-### Phase 0–1E
-### Phase 1F — Capability Registry + Task Engine
-- [x] Capability Registry (discovery only)
-- [x] Task Engine (create + explicit transitions)
-- [x] Capability discovery ≠ authorization (enforced by design)
-- [x] Tasks bound to Project/Scope/Principal/Capability
-- [x] Illegal state transitions rejected
-- [x] Unit + security tests
+### Phase 0–1F
+### Phase 1G — Execution Grant + Safe Mock Tool Broker
+- [x] Grant Issuer (only after ALLOWED decision)
+- [x] Tool Broker (sole gateway; grant validation + replay protection)
+- [x] Safe mock executor only
+- [x] Security tests: no grant / denied decision / expired / replay / mismatch
 
 ## Not Yet Implemented
-- 1G Execution Grant + Safe Mock Tool Broker
-- 1H–1K remaining
+- 1H Evidence + Findings + Provenance services
+- 1I Events + Audit
+- 1J API v1 + CLI + SDK
+- 1K Full integration suite

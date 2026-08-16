@@ -184,3 +184,22 @@ and returns a structured `contracts.Decision` with:
 
 Default evaluators are intentionally simple and replaceable.  
 No ExecutionGrant is issued in Phase 1E.
+
+## Phase 1G — Execution Grant + Tool Broker (Implemented)
+
+### Grant Issuer (`internal/broker.Issuer`)
+
+- Issues short-lived ExecutionGrants **only** after `Decision.Allowed`
+- Denied decisions cannot produce grants (`ErrForbidden`)
+- Grants carry nonce for replay protection, TTL, context binding
+
+### Tool Broker (`internal/broker.Broker`)
+
+- Sole execution gateway
+- Validates: structure, status, expiry, context match, nonce (replay), executor hints
+- **NO VALID GRANT ⇒ NO EXECUTION**
+
+### Mock Executor (`internal/execution/mock`)
+
+- Only executor registered in Phase 1G
+- Returns synthetic output; no shell, no real tools, no network scanners

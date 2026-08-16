@@ -3,7 +3,7 @@
 **Date:** 2026-08-16
 
 ## Current Checkpoint
-Phase 1F complete. Tag: `v0.1.0-phase1f`.
+Phase 1G complete. Tag: `v0.1.0-phase1g`.
 
 ## Immediate Next Step
-Await approval for **Phase 1G — Execution Grant + Safe Mock Tool Broker**.
+Await approval for **Phase 1H — Evidence + Findings + Provenance**.
