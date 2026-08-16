@@ -123,3 +123,36 @@ Outer interfaces (CLI, API, SDK, Plugins, Agents, ZOYA, UAB) communicate through
 ## 5. Current Status
 
 Phase 0 establishes only the skeleton, package boundaries, documentation, and build foundation. No business logic is present.
+
+## 6. Phase 1A — Contracts Layer (Implemented)
+
+As of Phase 1A the stable contract package `internal/contracts` exists and sits at the top of the dependency hierarchy.
+
+```mermaid
+flowchart TD
+    C[Contracts<br/>internal/contracts]
+    D[Domain]
+    A[Application]
+    CP[Control Plane]
+    P[Ports]
+    AD[Adapters]
+
+    C --> D
+    D --> A
+    A --> CP
+    CP --> P
+    P --> AD
+```
+
+**Properties of the contracts package:**
+
+- Infrastructure-neutral (only stdlib: `errors`, `fmt`, `time`)
+- Defines typed IDs, Principal, Scope, Task, Capability, Policy, Permission, Risk, Approval
+- Defines structured `Decision` (never a bare boolean)
+- Defines `ExecutionGrant` with usability semantics
+- Defines `ToolBroker` / `Executor` interface boundaries
+- Defines versioned `EventEnvelope`
+- Defines Evidence, Finding, Provenance shapes
+- Defines stable error sentinels
+
+No implementations of Control Plane, Task Engine, Broker, persistence, API, or tools exist yet.

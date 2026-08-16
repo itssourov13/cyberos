@@ -1,27 +1,18 @@
 # CYBEROS Project State
 
-**Last Updated:** 2026-08-16 (Phase 0 Foundation)
+**Last Updated:** 2026-08-16 (Phase 1A — Contracts)
 
 ## Current Phase
 
-**Phase 0 — Foundation** (completed in this checkpoint)
+**Phase 1A — Contracts** (completed)
 
 ## Summary
 
-- Clean Git repository initialized
-- Go module `cyberos` created (Go 1.22.2)
-- Full directory structure established according to master specification
-- Documentation skeleton complete
-- State management documents created
-- Configuration skeleton (`.env.example`)
-- Logging/versioning foundation (`pkg/version`)
-- Testing directory structure in place
-- Minimal CLI entrypoint that prints version / foundation message
-- Makefile, LICENSE, .gitignore present
-- No domain logic, no persistence, no real execution, no AI, no plugins
+- Phase 0 Foundation remains intact and tagged `v0.0.0-foundation`.
+- Phase 1A delivered the stable, infrastructure-neutral contract layer under `internal/contracts`.
+- Contracts contain only stdlib dependencies and define the shapes required by the non-bypassable security chain.
+- No domain logic, persistence, Control Plane, Tool Broker, API, or execution code was introduced.
 
 ## Next Phase
 
-**Phase 1 — Secure Core** (awaiting explicit approval)
-
-Order of work is strictly defined in the master build plan.
+**Phase 1B — Domain** (awaiting explicit approval)
