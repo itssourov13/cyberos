@@ -49,6 +49,14 @@ func (a *App) Run(args []string) int {
 		return a.cmdGrant(args[1:])
 	case "execute":
 		return a.cmdExecute(args[1:])
+	case "projects":
+		return a.cmdProjects()
+	case "scopes":
+		return a.cmdScopes(args[1:])
+	case "tasks":
+		return a.cmdTasks(args[1:])
+	case "dashboard":
+		return a.cmdDashboard()
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		printHelp()
@@ -67,8 +75,13 @@ Usage:
   cyberos evaluate --principal <id> --scope <id> --project <id> --capability <id> [--task <id>]
   cyberos grant --principal <id> --scope <id> --project <id> --capability <id> [--task <id>]
   cyberos execute --grant-json <file>
+  cyberos projects
+  cyberos scopes [--project <id>]
+  cyberos tasks [--project <id>] [--scope <id>]
+  cyberos dashboard
+  cyberos serve
 
-Sensitive operations use Control Plane → Grant → Broker.
+Sensitive operations use Control Plane → Grant → Broker → Sandbox.
 `)
 }
 
@@ -198,4 +211,64 @@ func parseEvalFlags(args []string) (controlplane.EvaluateRequest, error) {
 		return req, fmt.Errorf("--principal, --scope, and --capability are required")
 	}
 	return req, nil
+}
+
+func (a *App) cmdProjects() int {
+	if a.SDK == nil || a.SDK.Catalog == nil {
+		fmt.Println("[]")
+		return 0
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(a.SDK.Catalog.ListProjects())
+	return 0
+}
+
+func (a *App) cmdScopes(args []string) int {
+	projectID := ""
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--project" && i+1 < len(args) {
+			projectID = args[i+1]
+		}
+	}
+	if a.SDK == nil || a.SDK.Catalog == nil {
+		fmt.Println("[]")
+		return 0
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(a.SDK.Catalog.ListScopes(contracts.ProjectID(projectID)))
+	return 0
+}
+
+func (a *App) cmdTasks(args []string) int {
+	projectID, scopeID := "", ""
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--project" && i+1 < len(args) {
+			projectID = args[i+1]
+		}
+		if args[i] == "--scope" && i+1 < len(args) {
+			scopeID = args[i+1]
+		}
+	}
+	if a.SDK == nil || a.SDK.Catalog == nil {
+		fmt.Println("[]")
+		return 0
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(a.SDK.Catalog.ListTasks(contracts.ProjectID(projectID), contracts.ScopeID(scopeID)))
+	return 0
+}
+
+func (a *App) cmdDashboard() int {
+	projects, scopes, tasks := 0, 0, 0
+	if a.SDK != nil && a.SDK.Catalog != nil {
+		projects = len(a.SDK.Catalog.ListProjects())
+		scopes = len(a.SDK.Catalog.ListScopes(""))
+		tasks = len(a.SDK.Catalog.ListTasks("", ""))
+	}
+	fmt.Printf("projects=%d scopes=%d tasks=%d\n", projects, scopes, tasks)
+	fmt.Println("security=Scope→Principal→ControlPlane→Grant→Broker→Sandbox")
+	return 0
 }

@@ -67,3 +67,21 @@ cyberos serve   # API server
 ### SDK
 
 `internal/sdk.Client` — in-process foundation for automation and future agents/ZOYA/UAB.
+
+## Phase 3A — Expanded surfaces
+
+### New API routes
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/projects` | List projects |
+| GET | `/api/v1/scopes?project_id=` | List scopes |
+| GET | `/api/v1/tasks?project_id=&scope_id=` | List tasks |
+| GET | `/api/v1/tasks/{id}` | Task detail |
+| GET | `/api/v1/dashboard` | Summary counts |
+| GET | `/ui/` | Web UI foundation |
+
+### CLI
+`projects`, `scopes`, `tasks`, `dashboard`
+
+### Web UI
+Static thin client under `/ui/` — calls API only; no business logic.

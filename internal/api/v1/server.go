@@ -33,6 +33,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/evaluate", s.handleEvaluate)
 	mux.HandleFunc("/api/v1/grants", s.handleGrants)
 	mux.HandleFunc("/api/v1/execute", s.handleExecute)
+	mux.HandleFunc("/api/v1/projects", s.handleProjects)
+	mux.HandleFunc("/api/v1/scopes", s.handleScopes)
+	mux.HandleFunc("/api/v1/tasks", s.handleTasks)
+	mux.HandleFunc("/api/v1/tasks/{id}", s.handleTaskByID)
+	mux.HandleFunc("/api/v1/dashboard", s.handleDashboard)
+	// Web UI foundation (static)
+	mux.Handle("/ui/", http.StripPrefix("/ui/", uiFileServer()))
+	mux.HandleFunc("/", s.handleRoot)
 	return mux
 }
 
@@ -193,4 +201,12 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	http.Redirect(w, r, "/ui/", http.StatusFound)
 }

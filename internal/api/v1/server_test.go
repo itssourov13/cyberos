@@ -142,3 +142,46 @@ func TestGrantRequiresAuthorization(t *testing.T) {
 		t.Fatalf("expected 403 without capability, got %d", rr.Code)
 	}
 }
+
+func TestCatalogAndDashboard(t *testing.T) {
+	client := sdk.NewInMemory()
+	srv := NewServer(client)
+	h := srv.Handler()
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/v1/dashboard", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("dashboard: %d", rr.Code)
+	}
+
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("projects: %d %s", rr.Code, rr.Body.String())
+	}
+
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("tasks: %d", rr.Code)
+	}
+
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/v1/tasks/task-1", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("task by id: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestUIIndexServed(t *testing.T) {
+	srv := NewServer(sdk.NewInMemory())
+	h := srv.Handler()
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/ui/", nil))
+	if rr.Code != http.StatusOK && rr.Code != http.StatusMovedPermanently {
+		// FileServer may redirect
+		if rr.Code != 301 && rr.Code != 302 && rr.Code != 200 {
+			t.Fatalf("ui: %d", rr.Code)
+		}
+	}
+}

@@ -38,20 +38,24 @@ type Client struct {
 	Findings   *findings.Service
 	Provenance *provenance.Service
 	Audit      *audit.Service
+	Catalog    *Catalog
 }
 
 // NewInMemory constructs a client with mock broker, issuer, evidence stack,
 // and in-memory capability registry. Wire Identity/Scopes/Control/Tasks for
 // full authorization flows.
 func NewInMemory() *Client {
-	return &Client{
+	c := &Client{
 		Caps:       capability.NewRegistry(nil),
 		Issuer:     broker.NewIssuer(5 * time.Minute),
 		Broker:     broker.New(sandbox.New(mock.New())),
 		Evidence:   evidence.NewService(),
 		Findings:   findings.NewService(evidence.NewService()),
 		Provenance: provenance.NewService(),
+		Catalog:    NewCatalog(),
 	}
+	c.Catalog.SeedDemo()
+	return c
 }
 
 // WithIdentity sets the identity service.
