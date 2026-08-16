@@ -144,3 +144,78 @@ func (e *Engine) ListByScope(ctx context.Context, scopeID contracts.ScopeID, lim
 	}
 	return e.tasks.ListByScope(ctx, scopeID, limit, offset)
 }
+
+// ScheduleRequest schedules an existing task without authorizing it.
+type ScheduleRequest struct {
+	TaskID    contracts.TaskID
+	NotBefore time.Time
+	Priority  int
+}
+
+// Schedule applies schedule metadata via domain helpers and transitions
+// CREATED → SCHEDULED when appropriate. It does not call Control Plane.
+func (e *Engine) Schedule(ctx context.Context, req ScheduleRequest) (*task.Task, error) {
+	if e == nil || e.tasks == nil {
+		return nil, fmt.Errorf("%w: task repository not configured", contracts.ErrInvalidArgument)
+	}
+	t, err := e.tasks.GetByID(ctx, req.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	if err := t.EnsureBindings(); err != nil {
+		return nil, err
+	}
+	if err := t.ApplySchedule(task.ScheduleSpec{
+		NotBefore: req.NotBefore,
+		Priority:  req.Priority,
+	}); err != nil {
+		return nil, err
+	}
+	switch t.State {
+	case contracts.TaskStateCreated:
+		if err := t.TransitionTo(contracts.TaskStateScheduled); err != nil {
+			return nil, err
+		}
+	case contracts.TaskStateScheduled:
+		// allow reschedule
+	default:
+		return nil, fmt.Errorf("%w: cannot schedule task in state %s",
+			contracts.ErrInvalidStateTransition, t.State)
+	}
+	if err := e.tasks.Update(ctx, t); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// PromoteScheduled moves a due SCHEDULED task to PENDING.
+// This is a lifecycle step only — not authorization.
+func (e *Engine) PromoteScheduled(ctx context.Context, id contracts.TaskID, now time.Time) (*task.Task, error) {
+	if e == nil || e.tasks == nil {
+		return nil, fmt.Errorf("%w: task repository not configured", contracts.ErrInvalidArgument)
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	t, err := e.tasks.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if t.State != contracts.TaskStateScheduled {
+		return nil, fmt.Errorf("%w: task is not SCHEDULED", contracts.ErrInvalidStateTransition)
+	}
+	if !t.IsDue(now) {
+		return nil, fmt.Errorf("%w: task is not due yet", contracts.ErrInvalidArgument)
+	}
+	if err := t.TransitionTo(contracts.TaskStatePending); err != nil {
+		return nil, err
+	}
+	if t.Schedule != nil {
+		q := now
+		t.Schedule.QueuedAt = &q
+	}
+	if err := e.tasks.Update(ctx, t); err != nil {
+		return nil, err
+	}
+	return t, nil
+}

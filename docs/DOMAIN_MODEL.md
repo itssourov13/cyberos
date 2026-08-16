@@ -91,3 +91,16 @@ Domain packages import only `internal/contracts` and the Go standard library.
 ### Provenance (`internal/provenance`)
 - WHO / WHAT / WHEN / WHERE (project/scope/task) / capability / grant / executor
 - Parent IDs for findings → evidence lineage
+
+## Phase 2A — Task Lifecycle + Scheduling
+
+### Lifecycle
+- New state: `SCHEDULED` (waiting for `NotBefore`; **not** authorized)
+- Transitions: `CREATED → SCHEDULED → PENDING → …`
+- `CREATED → PENDING` still valid for immediate queue
+- Helpers: `AllowedNextStates`, `EnsureBindings`, `ApplySchedule`, `IsDue`
+
+### Scheduler (`internal/scheduler`)
+- `Schedule` / `Tick` / priority ordering
+- Promotes due tasks to `PENDING` only
+- **Never** calls Control Plane, Issuer, or Tool Broker

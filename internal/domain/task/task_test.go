@@ -3,6 +3,7 @@ package task
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"cyberos/internal/contracts"
 )
@@ -102,5 +103,39 @@ func TestMissingFields(t *testing.T) {
 	}
 	if _, err := New("id", "p", "s", "u", "c", contracts.TaskTypeRecon, ""); err == nil {
 		t.Error("empty title should fail")
+	}
+}
+
+func TestScheduledTransition(t *testing.T) {
+	task := newTestTask(t)
+	if err := task.TransitionTo(contracts.TaskStateScheduled); err != nil {
+		t.Fatalf("CREATED→SCHEDULED: %v", err)
+	}
+	if err := task.TransitionTo(contracts.TaskStatePending); err != nil {
+		t.Fatalf("SCHEDULED→PENDING: %v", err)
+	}
+}
+
+func TestScheduleDoesNotSkipToRunning(t *testing.T) {
+	task := newTestTask(t)
+	_ = task.TransitionTo(contracts.TaskStateScheduled)
+	err := task.TransitionTo(contracts.TaskStateRunning)
+	if err == nil {
+		t.Fatal("SCHEDULED→RUNNING must be illegal")
+	}
+}
+
+func TestApplyScheduleAndIsDue(t *testing.T) {
+	task := newTestTask(t)
+	now := time.Now().UTC()
+	if err := task.ApplySchedule(ScheduleSpec{NotBefore: now.Add(-time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	_ = task.TransitionTo(contracts.TaskStateScheduled)
+	if !task.IsDue(now) {
+		t.Error("should be due")
+	}
+	if task.IsDue(now.Add(-time.Hour)) {
+		t.Error("past clock before not_before should not be due")
 	}
 }

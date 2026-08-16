@@ -6,7 +6,8 @@ type TaskState string
 
 const (
 	TaskStateCreated         TaskState = "CREATED"
-	TaskStatePending         TaskState = "PENDING"
+	TaskStateScheduled       TaskState = "SCHEDULED" // waiting for schedule time; not authorized
+	TaskStatePending         TaskState = "PENDING"   // queued for authorization/work
 	TaskStateAuthorized      TaskState = "AUTHORIZED"
 	TaskStateWaitingApproval TaskState = "WAITING_APPROVAL"
 	TaskStateReady           TaskState = "READY"
@@ -20,7 +21,7 @@ const (
 // Valid reports whether the state is known.
 func (s TaskState) Valid() bool {
 	switch s {
-	case TaskStateCreated, TaskStatePending, TaskStateAuthorized,
+	case TaskStateCreated, TaskStateScheduled, TaskStatePending, TaskStateAuthorized,
 		TaskStateWaitingApproval, TaskStateReady, TaskStateRunning,
 		TaskStateSucceeded, TaskStateFailed, TaskStateCancelled, TaskStateExpired:
 		return true

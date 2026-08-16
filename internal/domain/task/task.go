@@ -22,6 +22,21 @@ type Task struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	Metadata     map[string]string
+
+	// Schedule holds optional scheduling metadata.
+	// Presence of a schedule does NOT authorize the task.
+	Schedule *ScheduleSpec
+}
+
+// ScheduleSpec describes when a task should become eligible for the pending queue.
+// Scheduling is never authorization.
+type ScheduleSpec struct {
+	// NotBefore is the earliest time the task may leave SCHEDULED.
+	NotBefore time.Time
+	// Priority is a simple ordering hint (higher runs first among due tasks). Zero is fine.
+	Priority int
+	// QueuedAt is set when the scheduler promotes the task to PENDING.
+	QueuedAt *time.Time
 }
 
 // New creates a Task in CREATED state or returns an error.
@@ -101,6 +116,12 @@ func (t *Task) Validate() error {
 // Future phases may extend this map; illegal transitions must always fail.
 var allowedTransitions = map[contracts.TaskState][]contracts.TaskState{
 	contracts.TaskStateCreated: {
+		contracts.TaskStateScheduled,
+		contracts.TaskStatePending,
+		contracts.TaskStateCancelled,
+		contracts.TaskStateExpired,
+	},
+	contracts.TaskStateScheduled: {
 		contracts.TaskStatePending,
 		contracts.TaskStateCancelled,
 		contracts.TaskStateExpired,
@@ -185,4 +206,48 @@ func (t *Task) Ref() contracts.TaskRef {
 		State:     t.State,
 		Type:      t.Type,
 	}
+}
+
+// AllowedNextStates returns legal next states from the current state.
+func (t *Task) AllowedNextStates() []contracts.TaskState {
+	if t == nil {
+		return nil
+	}
+	out := allowedTransitions[t.State]
+	cp := make([]contracts.TaskState, len(out))
+	copy(cp, out)
+	return cp
+}
+
+// EnsureBindings reports an error if project/scope/principal/capability bindings are incomplete.
+func (t *Task) EnsureBindings() error {
+	if t == nil {
+		return fmt.Errorf("%w: task is nil", contracts.ErrInvalidArgument)
+	}
+	return t.Validate()
+}
+
+// ApplySchedule attaches schedule metadata. Does not change state by itself.
+func (t *Task) ApplySchedule(spec ScheduleSpec) error {
+	if t == nil {
+		return fmt.Errorf("%w: task is nil", contracts.ErrInvalidArgument)
+	}
+	if spec.NotBefore.IsZero() {
+		return fmt.Errorf("%w: schedule.not_before is required", contracts.ErrInvalidArgument)
+	}
+	cp := spec
+	t.Schedule = &cp
+	t.UpdatedAt = contracts.NowUTC()
+	return nil
+}
+
+// IsDue reports whether a scheduled task is ready to be promoted at now.
+func (t *Task) IsDue(now time.Time) bool {
+	if t == nil || t.Schedule == nil {
+		return false
+	}
+	if t.State != contracts.TaskStateScheduled {
+		return false
+	}
+	return !now.Before(t.Schedule.NotBefore)
 }

@@ -1,8 +1,5 @@
-# CYBEROS Handoff Notes
+# Handoff
 
-**Date:** 2026-08-16
+Phase 2A complete. Tag: `v0.2.0-phase2a`.
 
-## Current Checkpoint
-Phase 1 Secure Core is complete. Tag: `v0.1.0-phase1`.
-
-## Do not start Phase 2 without explicit approval.
+Do not start Phase 2B without explicit approval.
