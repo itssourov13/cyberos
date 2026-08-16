@@ -11,5 +11,5 @@
 | 1G   | Execution Grant + Safe Mock Broker| **Done**   |
 | 1H   | Evidence + Findings + Provenance  | **Done**   |
 | 1I   | Events + Audit                    | **Done**   |
-| 1J   | API v1 + CLI + SDK                | Pending    |
+| 1J   | API v1 + CLI + SDK                | **Done**   |
 | 1K   | Full Integration + Security Tests | Pending    |

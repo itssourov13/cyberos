@@ -1,0 +1,201 @@
+// Package cli implements the CYBEROS command-line interface.
+// CLI commands call the same SDK/services as the API — no duplicated business logic.
+package cli
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
+
+	"cyberos/internal/contracts"
+	"cyberos/internal/controlplane"
+	"cyberos/internal/sdk"
+	"cyberos/pkg/version"
+)
+
+// App is the CLI application.
+type App struct {
+	SDK *sdk.Client
+}
+
+// New constructs a CLI app.
+func New(client *sdk.Client) *App {
+	return &App{SDK: client}
+}
+
+// Run dispatches commands from args (typically os.Args[1:]).
+func (a *App) Run(args []string) int {
+	if len(args) == 0 {
+		printHelp()
+		return 0
+	}
+	switch args[0] {
+	case "version", "--version", "-v":
+		fmt.Println(version.String())
+		return 0
+	case "help", "--help", "-h":
+		printHelp()
+		return 0
+	case "health":
+		fmt.Println("ok")
+		return 0
+	case "capabilities":
+		return a.cmdCapabilities(args[1:])
+	case "evaluate":
+		return a.cmdEvaluate(args[1:])
+	case "grant":
+		return a.cmdGrant(args[1:])
+	case "execute":
+		return a.cmdExecute(args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
+		printHelp()
+		return 1
+	}
+}
+
+func printHelp() {
+	fmt.Print(`CYBEROS CLI
+
+Usage:
+  cyberos version
+  cyberos health
+  cyberos capabilities list
+  cyberos capabilities register <id> <name> <type>
+  cyberos evaluate --principal <id> --scope <id> --project <id> --capability <id> [--task <id>]
+  cyberos grant --principal <id> --scope <id> --project <id> --capability <id> [--task <id>]
+  cyberos execute --grant-json <file>
+
+Sensitive operations use Control Plane → Grant → Broker.
+`)
+}
+
+func (a *App) cmdCapabilities(args []string) int {
+	ctx := context.Background()
+	if len(args) == 0 || args[0] == "list" {
+		list, err := a.SDK.ListCapabilities(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(list)
+		return 0
+	}
+	if args[0] == "register" && len(args) >= 4 {
+		err := a.SDK.RegisterCapability(ctx, args[1], args[2], contracts.CapabilityType(args[3]))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		fmt.Println("registered", args[1])
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, "usage: capabilities list | register <id> <name> <type>")
+	return 1
+}
+
+func (a *App) cmdEvaluate(args []string) int {
+	req, err := parseEvalFlags(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	d, err := a.SDK.Evaluate(context.Background(), req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(d)
+	if !d.Allowed() {
+		return 2
+	}
+	return 0
+}
+
+func (a *App) cmdGrant(args []string) int {
+	req, err := parseEvalFlags(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	g, d, err := a.SDK.IssueGrant(context.Background(), req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		_ = json.NewEncoder(os.Stdout).Encode(d)
+		return 2
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(map[string]any{"grant": g, "decision": d})
+	return 0
+}
+
+func (a *App) cmdExecute(args []string) int {
+	var path string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--grant-json" && i+1 < len(args) {
+			path = args[i+1]
+		}
+	}
+	if path == "" {
+		fmt.Fprintln(os.Stderr, "usage: execute --grant-json <file>")
+		return 1
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	var grant contracts.ExecutionGrant
+	if err := json.Unmarshal(data, &grant); err != nil {
+		fmt.Fprintf(os.Stderr, "error: invalid grant json: %v\n", err)
+		return 1
+	}
+	res, err := a.SDK.Execute(grant, nil)
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(res)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 2
+	}
+	return 0
+}
+
+func parseEvalFlags(args []string) (controlplane.EvaluateRequest, error) {
+	req := controlplane.EvaluateRequest{
+		CorrelationID: contracts.CorrelationID("cli-" + strings.ReplaceAll(fmt.Sprint(os.Getpid()), " ", "")),
+	}
+	for i := 0; i < len(args); i++ {
+		key := args[i]
+		if !strings.HasPrefix(key, "--") || i+1 >= len(args) {
+			continue
+		}
+		val := args[i+1]
+		i++
+		switch key {
+		case "--principal":
+			req.PrincipalID = contracts.PrincipalID(val)
+		case "--project":
+			req.ProjectID = contracts.ProjectID(val)
+		case "--scope":
+			req.ScopeID = contracts.ScopeID(val)
+		case "--task":
+			req.TaskID = contracts.TaskID(val)
+		case "--capability":
+			req.CapabilityID = contracts.CapabilityID(val)
+		case "--correlation":
+			req.CorrelationID = contracts.CorrelationID(val)
+		}
+	}
+	if req.PrincipalID == "" || req.ScopeID == "" || req.CapabilityID == "" {
+		return req, fmt.Errorf("--principal, --scope, and --capability are required")
+	}
+	return req, nil
+}

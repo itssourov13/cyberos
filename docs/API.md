@@ -37,3 +37,33 @@ JSON/YAML schemas under `api/schemas/`.
 - Future Agents / ZOYA / UAB (via SDK or API)
 
 No client may bypass the Control Plane.
+
+## Phase 1J — Implemented
+
+### Endpoints (`/api/v1/`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/health` | Liveness |
+| GET | `/api/v1/version` | Build info |
+| GET/POST | `/api/v1/capabilities` | List / register (discovery only) |
+| POST | `/api/v1/evaluate` | Control Plane evaluation |
+| POST | `/api/v1/grants` | Issue grant after evaluation (403 if denied) |
+| POST | `/api/v1/execute` | Execute under grant via Tool Broker |
+
+Handlers are thin adapters over `internal/sdk.Client`.
+
+### CLI
+
+```
+cyberos version | health
+cyberos capabilities list | register <id> <name> <type>
+cyberos evaluate --principal ... --scope ... --project ... --capability ...
+cyberos grant ...
+cyberos execute --grant-json <file>
+cyberos serve   # API server
+```
+
+### SDK
+
+`internal/sdk.Client` — in-process foundation for automation and future agents/ZOYA/UAB.

@@ -1,3 +1,3 @@
-// Package cli is part of the CYBEROS core.
-// Phase 0 Foundation: package boundary established; implementation begins in later phases.
+// Package cli implements the CYBEROS command-line interface.
+// Commands use the same SDK and services as the HTTP API.
 package cli

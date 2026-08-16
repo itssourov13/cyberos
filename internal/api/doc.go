@@ -1,3 +1,2 @@
-// Package api is part of the CYBEROS core.
-// Phase 0 Foundation: package boundary established; implementation begins in later phases.
+// Package api contains versioned HTTP API packages.
 package api
