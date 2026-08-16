@@ -203,3 +203,15 @@ No ExecutionGrant is issued in Phase 1E.
 
 - Only executor registered in Phase 1G
 - Returns synthetic output; no shell, no real tools, no network scanners
+
+## Phase 1K — End-to-End Validation (Complete)
+
+Integration tests under `tests/integration` prove:
+
+1. Full chain: Scope → Principal → Control Plane → Grant → Broker → Mock → Evidence → Provenance → Audit
+2. No valid grant ⇒ no execution
+3. Denied decisions cannot issue grants
+4. Expired scopes block the chain
+5. Grant nonce replay is rejected
+6. Only the safe mock executor is used
+7. CLI, API, and SDK share the same Control Plane services

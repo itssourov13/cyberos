@@ -177,3 +177,12 @@ Task carries an explicit, tested state machine. ExecutionGrant domain helpers en
 Repository ports live in `internal/storage/ports`.  
 PostgreSQL adapter lives in `internal/storage/postgres`.  
 Domain remains free of SQL.
+
+## Phase 1 Status
+
+Phase 1 Secure Core is complete (`v0.1.0-phase1`).
+
+Modular monolith with:
+- Contracts → Domain → Application/Identity/Scope → Control Plane → Grant Issuer → Tool Broker (mock) → Evidence/Findings/Provenance → Events/Audit
+- Thin API v1 + CLI + SDK
+- PostgreSQL persistence ports/adapter for core entities

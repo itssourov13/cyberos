@@ -1,9 +1,9 @@
 # CYBEROS Project State
 
-**Last Updated:** 2026-08-16 (Phase 1J)
+**Last Updated:** 2026-08-16
 
 ## Current Phase
-**Phase 1J — API v1 + CLI + SDK** (completed)
+**Phase 1 — Secure Core** (COMPLETE — tag `v0.1.0-phase1`)
 
 ## Next Phase
-**Phase 1K — Full Integration + Security Validation** (awaiting approval)
+**Phase 2 — Task + Execution System** (not started; awaiting approval)

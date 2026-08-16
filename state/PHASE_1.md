@@ -1,15 +1,5 @@
 # Phase 1 — Secure Core
 
-| Step | Name                              | Status     |
-|------|-----------------------------------|------------|
-| 1A   | Contracts                         | **Done**   |
-| 1B   | Domain                            | **Done**   |
-| 1C   | Persistence                       | **Done**   |
-| 1D   | Identity + Scope                  | **Done**   |
-| 1E   | Control Plane                     | **Done**   |
-| 1F   | Capability Registry + Task Engine | **Done**   |
-| 1G   | Execution Grant + Safe Mock Broker| **Done**   |
-| 1H   | Evidence + Findings + Provenance  | **Done**   |
-| 1I   | Events + Audit                    | **Done**   |
-| 1J   | API v1 + CLI + SDK                | **Done**   |
-| 1K   | Full Integration + Security Tests | Pending    |
+**Status: COMPLETE**
+
+All sub-steps 1A–1K done. Release tag: `v0.1.0-phase1`
