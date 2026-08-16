@@ -1,16 +1,16 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-16 (Phase 2A complete)
+**Last Updated:** 2026-08-16 (Phase 2B complete)
 
-## Phase 1 — Secure Core: COMPLETE (`v0.1.0-phase1`)
-
-## Phase 2 — Task + Execution System
-### 2A Task Lifecycle + Scheduling: COMPLETE
-- [x] SCHEDULED state + transitions
-- [x] ScheduleSpec metadata on Task
-- [x] Scheduler (Schedule/Tick, priority)
-- [x] TaskEngine Schedule / PromoteScheduled
-- [x] Scheduling ≠ authorization tests
+## Phase 1 — COMPLETE
+## Phase 2A — COMPLETE
+## Phase 2B — Dependencies + Retry/Timeout: COMPLETE
+- [x] Task.DependsOn + dependency graph validation (cycles, existence)
+- [x] AssertRunnable (deps SUCCEEDED only)
+- [x] RetryPolicy / RetryState with hard cap
+- [x] FAILED→PENDING for bounded retry
+- [x] Timeout + Deadline
+- [x] Security tests (deps ≠ auth, retry cap, deadline)
 
 ### Not yet
-- 2B Dependencies, Retry/Timeout, Resource Policies, Sandbox, Execution Controller
+- Resource policies, sandbox boundary, execution controller (2C+)

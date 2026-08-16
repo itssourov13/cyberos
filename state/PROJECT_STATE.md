@@ -2,8 +2,8 @@
 
 **Last Updated:** 2026-08-16
 
-## Current Phase
-**Phase 2A — Task Lifecycle + Scheduling** (completed)
+## Current
+**Phase 2B — Dependencies + Retry/Timeout** (completed)
 
 ## Next
-Awaiting approval for further Phase 2 sub-steps.
+Awaiting approval for Phase 2C+.

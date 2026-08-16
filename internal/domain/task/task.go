@@ -26,6 +26,33 @@ type Task struct {
 	// Schedule holds optional scheduling metadata.
 	// Presence of a schedule does NOT authorize the task.
 	Schedule *ScheduleSpec
+
+	// DependsOn lists task IDs that must reach SUCCEEDED before this task may run.
+	// Dependencies are not authorization.
+	DependsOn []contracts.TaskID
+
+	// Retry holds optional retry policy and attempt tracking.
+	Retry *RetryState
+
+	// Timeout is the maximum execution duration. Zero means no limit at this layer.
+	Timeout time.Duration
+
+	// Deadline is an absolute execution deadline (optional).
+	Deadline *time.Time
+}
+
+// RetryPolicy configures bounded retries. Zero MaxAttempts means no retries.
+type RetryPolicy struct {
+	MaxAttempts int           // total attempts allowed (>=1 means at least the first try)
+	Backoff     time.Duration // fixed backoff between retries (Phase 2B simple)
+}
+
+// RetryState tracks attempts under a policy.
+type RetryState struct {
+	Policy    RetryPolicy
+	Attempts  int
+	LastError string
+	NextRetry *time.Time
 }
 
 // ScheduleSpec describes when a task should become eligible for the pending queue.
@@ -153,9 +180,12 @@ var allowedTransitions = map[contracts.TaskState][]contracts.TaskState{
 		contracts.TaskStateFailed,
 		contracts.TaskStateCancelled,
 	},
-	// Terminal states have no outbound transitions.
+	// FAILED may return to PENDING when retries remain (enforced by engine/policy).
+	contracts.TaskStateFailed: {
+		contracts.TaskStatePending,
+	},
+	// Terminal states (except FAILED, which is conditionally retriable).
 	contracts.TaskStateSucceeded: {},
-	contracts.TaskStateFailed:    {},
 	contracts.TaskStateCancelled: {},
 	contracts.TaskStateExpired:   {},
 }
@@ -250,4 +280,103 @@ func (t *Task) IsDue(now time.Time) bool {
 		return false
 	}
 	return !now.Before(t.Schedule.NotBefore)
+}
+
+// SetDependencies replaces the dependency list (no cycle check here — use dependency graph).
+func (t *Task) SetDependencies(ids []contracts.TaskID) error {
+	if t == nil {
+		return fmt.Errorf("%w: task is nil", contracts.ErrInvalidArgument)
+	}
+	for _, id := range ids {
+		if id == "" {
+			return fmt.Errorf("%w: empty dependency id", contracts.ErrInvalidArgument)
+		}
+		if id == t.ID {
+			return fmt.Errorf("%w: task cannot depend on itself", contracts.ErrInvalidArgument)
+		}
+	}
+	cp := make([]contracts.TaskID, len(ids))
+	copy(cp, ids)
+	t.DependsOn = cp
+	t.UpdatedAt = contracts.NowUTC()
+	return nil
+}
+
+// ApplyRetryPolicy attaches a bounded retry policy.
+func (t *Task) ApplyRetryPolicy(p RetryPolicy) error {
+	if t == nil {
+		return fmt.Errorf("%w: task is nil", contracts.ErrInvalidArgument)
+	}
+	if p.MaxAttempts < 1 {
+		return fmt.Errorf("%w: retry.max_attempts must be >= 1", contracts.ErrInvalidArgument)
+	}
+	if p.MaxAttempts > 100 {
+		return fmt.Errorf("%w: retry.max_attempts exceeds hard limit (100)", contracts.ErrInvalidArgument)
+	}
+	t.Retry = &RetryState{Policy: p}
+	t.UpdatedAt = contracts.NowUTC()
+	return nil
+}
+
+// SetTimeout sets a per-execution timeout. Negative values are rejected.
+func (t *Task) SetTimeout(d time.Duration) error {
+	if t == nil {
+		return fmt.Errorf("%w: task is nil", contracts.ErrInvalidArgument)
+	}
+	if d < 0 {
+		return fmt.Errorf("%w: timeout must be >= 0", contracts.ErrInvalidArgument)
+	}
+	t.Timeout = d
+	t.UpdatedAt = contracts.NowUTC()
+	return nil
+}
+
+// SetDeadline sets an absolute deadline.
+func (t *Task) SetDeadline(at time.Time) error {
+	if t == nil {
+		return fmt.Errorf("%w: task is nil", contracts.ErrInvalidArgument)
+	}
+	if at.IsZero() {
+		return fmt.Errorf("%w: deadline required", contracts.ErrInvalidArgument)
+	}
+	ts := at.UTC()
+	t.Deadline = &ts
+	t.UpdatedAt = contracts.NowUTC()
+	return nil
+}
+
+// IsPastDeadline reports whether now is after the task deadline.
+func (t *Task) IsPastDeadline(now time.Time) bool {
+	if t == nil || t.Deadline == nil {
+		return false
+	}
+	return now.After(*t.Deadline)
+}
+
+// CanRetry reports whether another attempt is allowed by policy.
+func (t *Task) CanRetry() bool {
+	if t == nil || t.Retry == nil {
+		return false
+	}
+	return t.Retry.Attempts < t.Retry.Policy.MaxAttempts
+}
+
+// RecordAttempt increments attempt counter after a failed execution.
+func (t *Task) RecordAttempt(errMsg string, now time.Time) error {
+	if t == nil {
+		return fmt.Errorf("%w: task is nil", contracts.ErrInvalidArgument)
+	}
+	if t.Retry == nil {
+		return fmt.Errorf("%w: no retry policy", contracts.ErrInvalidArgument)
+	}
+	t.Retry.Attempts++
+	t.Retry.LastError = errMsg
+	if t.CanRetry() && t.Retry.Policy.Backoff > 0 {
+		n := now.Add(t.Retry.Policy.Backoff)
+		t.Retry.NextRetry = &n
+	} else {
+		t.Retry.NextRetry = nil
+	}
+	t.UpdatedAt = contracts.NowUTC()
+	return nil
 }

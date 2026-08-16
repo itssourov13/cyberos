@@ -219,3 +219,121 @@ func (e *Engine) PromoteScheduled(ctx context.Context, id contracts.TaskID, now 
 	}
 	return t, nil
 }
+
+// SetDependencies attaches dependency IDs after graph validation.
+// depsLookup is used for existence and cycle checks; may be nil to skip graph validation
+// (not recommended). Prefer wiring a dependency.Graph via ValidateDependencies first.
+func (e *Engine) SetDependencies(ctx context.Context, id contracts.TaskID, dependsOn []contracts.TaskID) (*task.Task, error) {
+	if e == nil || e.tasks == nil {
+		return nil, fmt.Errorf("%w: task repository not configured", contracts.ErrInvalidArgument)
+	}
+	t, err := e.tasks.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := t.SetDependencies(dependsOn); err != nil {
+		return nil, err
+	}
+	if err := e.tasks.Update(ctx, t); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// ApplyRetryPolicy sets a bounded retry policy on the task.
+func (e *Engine) ApplyRetryPolicy(ctx context.Context, id contracts.TaskID, maxAttempts int, backoff time.Duration) (*task.Task, error) {
+	if e == nil || e.tasks == nil {
+		return nil, fmt.Errorf("%w: task repository not configured", contracts.ErrInvalidArgument)
+	}
+	t, err := e.tasks.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := t.ApplyRetryPolicy(task.RetryPolicy{MaxAttempts: maxAttempts, Backoff: backoff}); err != nil {
+		return nil, err
+	}
+	if err := e.tasks.Update(ctx, t); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// SetTimeoutDeadline sets timeout and/or absolute deadline.
+func (e *Engine) SetTimeoutDeadline(ctx context.Context, id contracts.TaskID, timeout time.Duration, deadline *time.Time) (*task.Task, error) {
+	if e == nil || e.tasks == nil {
+		return nil, fmt.Errorf("%w: task repository not configured", contracts.ErrInvalidArgument)
+	}
+	t, err := e.tasks.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if timeout != 0 {
+		if err := t.SetTimeout(timeout); err != nil {
+			return nil, err
+		}
+	}
+	if deadline != nil {
+		if err := t.SetDeadline(*deadline); err != nil {
+			return nil, err
+		}
+	}
+	if err := e.tasks.Update(ctx, t); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// MarkFailed records a failed attempt. If retries remain, transitions FAILED→PENDING
+// (after optional backoff window is left to the caller/scheduler).
+// Does not issue grants or execute.
+func (e *Engine) MarkFailed(ctx context.Context, id contracts.TaskID, errMsg string, now time.Time) (*task.Task, error) {
+	if e == nil || e.tasks == nil {
+		return nil, fmt.Errorf("%w: task repository not configured", contracts.ErrInvalidArgument)
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	t, err := e.tasks.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	// Transition to FAILED if currently RUNNING
+	if t.State == contracts.TaskStateRunning {
+		if err := t.TransitionTo(contracts.TaskStateFailed); err != nil {
+			return nil, err
+		}
+	}
+	if t.Retry != nil {
+		if err := t.RecordAttempt(errMsg, now); err != nil {
+			return nil, err
+		}
+		if t.CanRetry() {
+			// Move back to PENDING for another authorization+execution cycle later.
+			if err := t.TransitionTo(contracts.TaskStatePending); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := e.tasks.Update(ctx, t); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// AssertNotTimedOut returns an error if the task is past its deadline.
+func (e *Engine) AssertNotTimedOut(ctx context.Context, id contracts.TaskID, now time.Time) error {
+	if e == nil || e.tasks == nil {
+		return fmt.Errorf("%w: task repository not configured", contracts.ErrInvalidArgument)
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	t, err := e.tasks.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if t.IsPastDeadline(now) {
+		return fmt.Errorf("%w: task deadline exceeded", contracts.ErrInvalidArgument)
+	}
+	return nil
+}

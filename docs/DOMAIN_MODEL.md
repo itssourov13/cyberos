@@ -104,3 +104,17 @@ Domain packages import only `internal/contracts` and the Go standard library.
 - `Schedule` / `Tick` / priority ordering
 - Promotes due tasks to `PENDING` only
 - **Never** calls Control Plane, Issuer, or Tool Broker
+
+## Phase 2B — Dependencies + Retry/Timeout
+
+### Dependencies (`internal/dependency`)
+- Explicit `DependsOn` task IDs
+- Validate existence, reject self-deps and cycles
+- `Satisfied` / `AssertRunnable` require deps in SUCCEEDED
+- **Not authorization**
+
+### Retry / Timeout
+- `RetryPolicy` with hard cap MaxAttempts ≤ 100
+- `RetryState` tracks attempts, last error, next retry time
+- `FAILED → PENDING` allowed when retries remain
+- `Timeout` duration + absolute `Deadline`
