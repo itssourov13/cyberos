@@ -161,3 +161,26 @@ The invariant must be tested continuously.
 - `EnsureSameProject` enforces project membership of the scope.
 
 These gates are the foundation for the future Control Plane evaluation chain.
+
+## Phase 1E — Control Plane (Implemented)
+
+The Control Plane (`internal/controlplane.Service`) evaluates:
+
+1. Scope (RequireActive + project membership + asset constraints)
+2. Principal (RequireActive)
+3. Policy
+4. Permission
+5. Risk
+6. Approval
+
+and returns a structured `contracts.Decision` with:
+
+- outcome (ALLOWED / DENIED)
+- reason
+- decision ID, timestamp
+- principal / project / scope / task / capability context
+- policy, permission, risk, approval sub-results
+- correlation ID
+
+Default evaluators are intentionally simple and replaceable.  
+No ExecutionGrant is issued in Phase 1E.

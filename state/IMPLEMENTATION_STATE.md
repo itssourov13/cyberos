@@ -1,22 +1,19 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-16 (Phase 1D complete)
+**Last Updated:** 2026-08-16 (Phase 1E complete)
 
 ## Implemented
 
-### Phase 0 — Foundation
-### Phase 1A — Contracts
-### Phase 1B — Domain
-### Phase 1C — Persistence
-### Phase 1D — Identity + Scope
-- [x] `internal/identity.Service` (Create, Get, RequireActive, List)
-- [x] `internal/application/scope.Service` (Create, Get, Update, RequireActive, EnsureAllowsAsset)
-- [x] Active principal enforcement
-- [x] Active / time-valid scope enforcement
-- [x] Asset constraint enforcement
-- [x] Project membership check for scopes
-- [x] Unit tests + security tests under `tests/security`
+### Phase 0–1D
+### Phase 1E — Control Plane
+- [x] `internal/controlplane.Service.Evaluate` — full chain
+- [x] Structured Decision (never bare bool)
+- [x] Explicit denials with reasons
+- [x] Pluggable Policy / Permission / Risk / Approval evaluators
+- [x] Default evaluators for Phase 1
+- [x] Unit + security tests
 
 ## Not Yet Implemented
-- 1E Control Plane
-- 1F–1K remaining Phase 1 steps
+- 1F Capability Registry + Task Engine
+- 1G Execution Grant + Mock Tool Broker
+- 1H–1K remaining
