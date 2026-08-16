@@ -26,6 +26,7 @@ type (
 	EventID          string
 	AuditID          string
 	DecisionID       string
+	ExecutionID      string
 	CorrelationID    string
 	CausationID      string
 	SchemaVersion    string

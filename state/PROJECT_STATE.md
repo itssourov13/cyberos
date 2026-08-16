@@ -3,7 +3,7 @@
 **Last Updated:** 2026-08-16
 
 ## Current
-**Phase 2C — Resource Policies + Sandbox Boundary** (completed)
+**Phase 2D — Execution Lifecycle + Evidence/Findings Enrichment** (completed)
 
 ## Next
-Awaiting approval for Phase 2D+.
+Awaiting approval for Phase 2E / Phase 2 completion.

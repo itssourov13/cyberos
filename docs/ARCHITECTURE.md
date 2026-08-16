@@ -186,3 +186,11 @@ Modular monolith with:
 - Contracts → Domain → Application/Identity/Scope → Control Plane → Grant Issuer → Tool Broker (mock) → Evidence/Findings/Provenance → Events/Audit
 - Thin API v1 + CLI + SDK
 - PostgreSQL persistence ports/adapter for core entities
+
+## Phase 2D — Execution Lifecycle
+
+`internal/execution/lifecycle.Controller` runs grant-gated work through the Tool Broker,
+records `ExecutionRecord` (task/grant/principal/scope/attempt/metrics), and enriches
+Evidence / Findings / Provenance / Audit.
+
+Flow: Grant → Broker → Sandbox → Executor → Evidence (+ optional Finding) → Provenance

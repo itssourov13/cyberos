@@ -1,15 +1,11 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-16 (Phase 2C complete)
+**Last Updated:** 2026-08-16 (Phase 2D complete)
 
-## Phase 1 + 2A + 2B: COMPLETE
-## Phase 2C — Resource Policies + Sandbox: COMPLETE
-- [x] ResourcePolicy + validation/hard ceilings
-- [x] Sandbox executor boundary
-- [x] Isolation: no network/fs
-- [x] SDK wired through sandbox
-- [x] Security tests
-
-### Not yet
-- Execution controller lifecycle (2D)
-- Real tools
+## Phase 1 + 2A–2C: COMPLETE
+## Phase 2D — Execution Lifecycle + Evidence Enrichment: COMPLETE
+- [x] ExecutionRecord + lifecycle states
+- [x] Controller.Run through Tool Broker
+- [x] Evidence enrichment with lifecycle metadata
+- [x] Optional findings + provenance + audit
+- [x] Attribution and no-grant security tests
