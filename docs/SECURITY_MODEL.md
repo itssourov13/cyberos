@@ -215,3 +215,16 @@ Integration tests under `tests/integration` prove:
 5. Grant nonce replay is rejected
 6. Only the safe mock executor is used
 7. CLI, API, and SDK share the same Control Plane services
+
+## Phase 2C — Resource Policies + Sandbox Boundary
+
+### ResourcePolicy (`contracts.ResourcePolicy`)
+- MaxDuration, MaxMemoryBytes, MaxOutputBytes, MaxConcurrency
+- Hard ceilings; network/filesystem flags default **false**
+- Not authorization
+
+### Sandbox (`internal/execution/sandbox`)
+- Wraps inner Executor (Phase 2C: mock only)
+- Rejects AllowNetwork / AllowFilesystem
+- Enforces concurrency, output size, duration
+- SDK broker path uses sandbox → mock

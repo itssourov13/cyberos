@@ -173,7 +173,7 @@ func TestE2E_FullSecurityChain(t *testing.T) {
 	if err != nil || res.Status != contracts.ExecutionStatusSucceeded {
 		t.Fatalf("execute: err=%v status=%s", err, res.Status)
 	}
-	if res.ExecutorID != "mock" {
+	if res.ExecutorID != "mock" && res.ExecutorID != "sandbox/mock" {
 		t.Fatalf("executor=%s", res.ExecutorID)
 	}
 
@@ -318,7 +318,7 @@ func TestE2E_OnlyMockExecutor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.ExecutorID != "mock" || res.Output["mock"] != true {
+	if (res.ExecutorID != "mock" && res.ExecutorID != "sandbox/mock") || res.Output["mock"] != true {
 		t.Fatalf("expected mock executor, got %+v", res)
 	}
 }

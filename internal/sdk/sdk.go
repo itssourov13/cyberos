@@ -17,6 +17,7 @@ import (
 	domaincap "cyberos/internal/domain/capability"
 	"cyberos/internal/evidence"
 	"cyberos/internal/execution/mock"
+	"cyberos/internal/execution/sandbox"
 	"cyberos/internal/findings"
 	"cyberos/internal/identity"
 	"cyberos/internal/provenance"
@@ -46,7 +47,7 @@ func NewInMemory() *Client {
 	return &Client{
 		Caps:       capability.NewRegistry(nil),
 		Issuer:     broker.NewIssuer(5 * time.Minute),
-		Broker:     broker.New(mock.New()),
+		Broker:     broker.New(sandbox.New(mock.New())),
 		Evidence:   evidence.NewService(),
 		Findings:   findings.NewService(evidence.NewService()),
 		Provenance: provenance.NewService(),
