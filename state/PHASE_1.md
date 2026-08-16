@@ -5,7 +5,7 @@
 | 1A   | Contracts                         | **Done**   |
 | 1B   | Domain                            | **Done**   |
 | 1C   | Persistence                       | **Done**   |
-| 1D   | Identity + Scope                  | Pending    |
+| 1D   | Identity + Scope                  | **Done**   |
 | 1E   | Control Plane                     | Pending    |
 | 1F   | Capability Registry + Task Engine | Pending    |
 | 1G   | Execution Grant + Safe Mock Broker| Pending    |

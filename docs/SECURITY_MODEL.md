@@ -144,3 +144,20 @@ Critical tests must cover (among others):
 - attempted Control Plane bypass
 
 The invariant must be tested continuously.
+
+## Phase 1D — Identity + Scope Boundary (Implemented)
+
+### Principal (Identity)
+
+- `internal/identity.Service` manages principals.
+- `RequireActive` is the gate: principal must exist, validate, and be active.
+- Inactive principals are rejected with `ErrForbidden`.
+
+### Scope (Authorization Boundary)
+
+- `internal/application/scope.Service` treats Scope as the mandatory root boundary.
+- `RequireActive` fails for missing, inactive, revoked, or time-expired scopes (`ErrScopeInvalid`).
+- `EnsureAllowsAsset` rejects assets outside the scope allow-list (`ErrForbidden`).
+- `EnsureSameProject` enforces project membership of the scope.
+
+These gates are the foundation for the future Control Plane evaluation chain.
