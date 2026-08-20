@@ -37,7 +37,7 @@ go.work.sum
 .env.*.local
 *.pem
 *.key
-secrets/
+/secrets/
 
 # Database
 *.db
