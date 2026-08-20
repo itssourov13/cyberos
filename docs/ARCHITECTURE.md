@@ -204,3 +204,11 @@ Control Plane → Grant → Broker → Execution Lifecycle → Evidence → Find
 Provenance → Audit
 
 Tag: `v0.2.0-phase2`
+
+## Phase 3E — Plugin + Tool Adapter Architecture
+
+- `contracts.PluginManifest` / `PluginRuntime` / `PluginState`
+- `plugin.Adapter`: Manifest, Validate, Prepare (no Execute)
+- `plugin.Registry`: Register → Activate → Disable; optional capability discovery
+- All real execution remains Tool Broker → Sandbox under grant
+- Discovery ≠ authorization
