@@ -103,6 +103,27 @@ func (m *memT) ListByScope(context.Context, contracts.ScopeID, int, int) ([]*tas
 	return nil, nil
 }
 
+func (m *memT) ListByState(_ context.Context, state contracts.TaskState, limit, offset int) ([]*task.Task, error) {
+	var out []*task.Task
+	for _, t := range m.items {
+		if t.State == state {
+			cp := *t
+			out = append(out, &cp)
+		}
+	}
+	return out, nil
+}
+func (m *memT) ListDueScheduled(_ context.Context, now time.Time, limit int) ([]*task.Task, error) {
+	var out []*task.Task
+	for _, t := range m.items {
+		if t.State == contracts.TaskStateScheduled && t.IsDue(now) {
+			cp := *t
+			out = append(out, &cp)
+		}
+	}
+	return out, nil
+}
+
 func wire(t *testing.T) *sdk.Client {
 	t.Helper()
 	pr, sr, tr := &memP{}, &memS{}, &memT{}

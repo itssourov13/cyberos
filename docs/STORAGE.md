@@ -38,3 +38,18 @@ SQL files under `migrations/` applied in lexical order via `postgres.ApplyMigrat
 ## Tests
 
 Integration tests (build tag `integration`) exercise create/get/update round-trips against a real PostgreSQL instance.
+
+## Phase 3B — Durable task state
+
+Migration `002_task_durable.sql` extends `tasks` with:
+- depends_on, schedule, retry JSONB
+- timeout_ns, deadline
+- worker_id / lease_until (hooks for runners)
+- task_runner_events journal table
+
+TaskRepository adds `ListByState` and `ListDueScheduled`.
+
+### Runner (`internal/runner`)
+- PromoteDueScheduled → PENDING only
+- ClaimPending with leases + RecoverExpiredLeases
+- **Never** authorizes or executes

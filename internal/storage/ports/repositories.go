@@ -5,6 +5,7 @@ package ports
 
 import (
 	"context"
+	"time"
 
 	"cyberos/internal/contracts"
 	"cyberos/internal/domain/asset"
@@ -44,6 +45,8 @@ type TaskRepository interface {
 	GetByID(ctx context.Context, id contracts.TaskID) (*task.Task, error)
 	Update(ctx context.Context, t *task.Task) error
 	ListByScope(ctx context.Context, scopeID contracts.ScopeID, limit, offset int) ([]*task.Task, error)
+	ListByState(ctx context.Context, state contracts.TaskState, limit, offset int) ([]*task.Task, error)
+	ListDueScheduled(ctx context.Context, now time.Time, limit int) ([]*task.Task, error)
 }
 
 // PrincipalRepository persists and retrieves principals.

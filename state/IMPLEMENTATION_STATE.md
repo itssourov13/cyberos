@@ -1,11 +1,11 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-16 (Phase 3A complete)
+**Last Updated:** 2026-08-20 (Phase 3B complete)
 
-## Phase 1–2: COMPLETE
-## Phase 3A — API/CLI Expansion + Web UI Foundation: COMPLETE
-- [x] Catalog (projects/scopes/tasks views)
-- [x] API list/detail/dashboard routes
-- [x] CLI projects/scopes/tasks/dashboard
-- [x] Embedded Web UI foundation
-- [x] Tests
+## Phase 1–2 + 3A: COMPLETE
+## Phase 3B — Persistent Task State + Durable Runner: COMPLETE
+- [x] Migration 002 durable task columns + runner events
+- [x] TaskRepository ListByState / ListDueScheduled
+- [x] Postgres task persistence for schedule/retry/deps
+- [x] runner.Runner promote/claim/recover (no auth bypass)
+- [x] Unit + security tests

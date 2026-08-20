@@ -60,6 +60,13 @@ func (m *memTaskRepo) ListByScope(_ context.Context, scopeID contracts.ScopeID, 
 	return out, nil
 }
 
+func (m *memTaskRepo) ListByState(context.Context, contracts.TaskState, int, int) ([]*task.Task, error) {
+	return nil, nil
+}
+func (m *memTaskRepo) ListDueScheduled(context.Context, time.Time, int) ([]*task.Task, error) {
+	return nil, nil
+}
+
 type memPrincipalRepo struct {
 	items map[contracts.PrincipalID]*principal.Principal
 }
