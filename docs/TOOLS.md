@@ -71,3 +71,34 @@ Default policy is **fail-closed** (no process execution).
 4. Do **not** modify Broker, Control Plane, or core packages.
 
 Python/Rust tools use the same boundary via process allowlist + adapter, not as core dependencies.
+
+## Phase 6B — Extensible tool platform
+
+### Platform API (`tools.Platform`)
+
+| Method | Purpose |
+|--------|---------|
+| `RegisterAdapter` | Validate + register (discovery only) |
+| `Discover` | List descriptors |
+| `Resolve` | Get adapter by id (fail closed) |
+| `HealthSweep` | Availability snapshots |
+| `WireExecutors` | Register into execution.Registry for Broker |
+| `RegisterPack` | Pack metadata (Recon/Web/Vuln/Network) |
+
+### Adding a new tool (no core changes)
+
+1. Implement `tools.Adapter` in a new package under `internal/tools/<name>/`.
+2. Call `platform.RegisterAdapter(adapter)`.
+3. Optionally add tool id to a pack via `RegisterPack`.
+4. `WireExecutors` into the Broker's registry.
+
+**Do not modify:** Control Plane, Broker, Sandbox, Scheduler, Worker, Assessment Orchestrator, core registry implementation.
+
+### Packs
+
+- `pack.recon` — includes Nmap (reference)
+- `pack.web`, `pack.vuln`, `pack.network` — reserved for future tools
+
+### Runtimes
+
+Go / Python / Rust / Other labels are metadata. All execution still uses allowlisted process policy + Broker.

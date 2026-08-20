@@ -7,12 +7,13 @@ const (
 	PluginRuntimeGo     PluginRuntime = "go"
 	PluginRuntimePython PluginRuntime = "python"
 	PluginRuntimeRust   PluginRuntime = "rust"
+	PluginRuntimeOther  PluginRuntime = "other" // future languages
 )
 
 // Valid reports whether the runtime is known.
 func (r PluginRuntime) Valid() bool {
 	switch r {
-	case PluginRuntimeGo, PluginRuntimePython, PluginRuntimeRust:
+	case PluginRuntimeGo, PluginRuntimePython, PluginRuntimeRust, PluginRuntimeOther:
 		return true
 	default:
 		return false

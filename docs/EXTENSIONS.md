@@ -17,3 +17,9 @@ Python/Rust/TypeScript integrate as adapters or UI clients, not core rewrites.
 - Package `internal/tools/nmap` implements `tools.Adapter`
 - Capability `recon.network.portscan`
 - See `docs/TOOLS.md`
+
+## Phase 6B platform
+
+- `tools.Platform` + `Manifest` + `PackRegistry`
+- Recon pack: `internal/tools/packs/recon`
+- Core packages listed in TOOLS.md must not change when adding tools
