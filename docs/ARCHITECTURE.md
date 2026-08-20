@@ -245,3 +245,9 @@ Tag: `v0.2.0-phase2`
 - Each step issues its own grant via GrantIssuer then Broker.Execute
 - Evidence/findings/provenance/events hooks
 - Orchestration ≠ authorization
+
+## Architecture audit
+
+See **[ARCHITECTURE_AUDIT.md](./ARCHITECTURE_AUDIT.md)** (2026-08-20, based on tag `v0.3.0-phase3i`).
+
+That document is the roadmap audit (sections A–J): completed vs partial layers, risks, recommended Phase 3J+, and what must not change.

@@ -9,3 +9,6 @@
 - [x] Evidence/finding/event lineage hooks
 - [x] Cancel / fail-closed without grant
 - [x] Security tests
+
+## Project documentation
+- Architecture audit (roadmap): `docs/ARCHITECTURE_AUDIT.md`
