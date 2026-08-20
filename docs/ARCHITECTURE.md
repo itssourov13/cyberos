@@ -251,3 +251,8 @@ Tag: `v0.2.0-phase2`
 See **[ARCHITECTURE_AUDIT.md](./ARCHITECTURE_AUDIT.md)** (2026-08-20, based on tag `v0.3.0-phase3i`).
 
 That document is the roadmap audit (sections A–J): completed vs partial layers, risks, recommended Phase 3J+, and what must not change.
+
+## Phase 3 Status — COMPLETE (`v0.3.0-phase3j`)
+
+Assessment + Tools wired through SDK/API/CLI with Control Plane grants.
+Extension boundaries: `docs/EXTENSIONS.md`.

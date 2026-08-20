@@ -57,6 +57,8 @@ func (a *App) Run(args []string) int {
 		return a.cmdTasks(args[1:])
 	case "dashboard":
 		return a.cmdDashboard()
+	case "assessments":
+		return a.cmdAssessments(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		printHelp()
@@ -79,6 +81,7 @@ Usage:
   cyberos scopes [--project <id>]
   cyberos tasks [--project <id>] [--scope <id>]
   cyberos dashboard
+  cyberos assessments list|create|plan|run|get
   cyberos serve
 
 Sensitive operations use Control Plane → Grant → Broker → Sandbox.
@@ -271,4 +274,82 @@ func (a *App) cmdDashboard() int {
 	fmt.Printf("projects=%d scopes=%d tasks=%d\n", projects, scopes, tasks)
 	fmt.Println("security=Scope→Principal→ControlPlane→Grant→Broker→Sandbox")
 	return 0
+}
+
+func (a *App) cmdAssessments(args []string) int {
+	if len(args) == 0 {
+		fmt.Println("usage: assessments list|create|plan|run|get")
+		return 1
+	}
+	switch args[0] {
+	case "list":
+		if a.SDK == nil || a.SDK.Catalog == nil {
+			fmt.Println("[]")
+			return 0
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(a.SDK.Catalog.ListAssessments())
+		return 0
+	case "get":
+		if len(args) < 2 {
+			fmt.Println("usage: assessments get <id>")
+			return 1
+		}
+		asmt, err := a.SDK.GetAssessment(args[1])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(asmt)
+		return 0
+	case "create":
+		// assessments create <id> <project> <scope> <principal> <title> [target]
+		if len(args) < 6 {
+			fmt.Println("usage: assessments create <id> <project> <scope> <principal> <title> [target]")
+			return 1
+		}
+		target := ""
+		if len(args) > 6 {
+			target = args[6]
+		}
+		asmt, err := a.SDK.CreateAssessment(args[1], args[2], args[3], args[4], args[5], target)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Println(asmt.ID, asmt.State)
+		return 0
+	case "plan":
+		// assessments plan <id> <capability>
+		if len(args) < 3 {
+			fmt.Println("usage: assessments plan <id> <capability_id>")
+			return 1
+		}
+		steps := []contracts.AssessmentStep{{ID: "s1", CapabilityID: contracts.CapabilityID(args[2])}}
+		asmt, err := a.SDK.PlanAssessment(args[1], steps)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Println(asmt.ID, asmt.State, len(asmt.Steps))
+		return 0
+	case "run":
+		if len(args) < 2 {
+			fmt.Println("usage: assessments run <id>")
+			return 1
+		}
+		asmt, err := a.SDK.RunAssessment(context.Background(), args[1])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Println(asmt.ID, asmt.State, len(asmt.StepResults))
+		return 0
+	default:
+		fmt.Println("unknown assessments subcommand")
+		return 1
+	}
 }

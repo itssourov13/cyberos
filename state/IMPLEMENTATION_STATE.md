@@ -1,14 +1,15 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-20 (Phase 3I complete)
+**Last Updated:** 2026-08-20 (Phase 3J complete — Phase 3 frozen)
 
-## Phase 3I — Security Assessment Orchestration Foundation: COMPLETE
-- [x] Assessment model + state machine
-- [x] Plan sequential capability steps
-- [x] Orchestrator with per-step grants
-- [x] Evidence/finding/event lineage hooks
-- [x] Cancel / fail-closed without grant
-- [x] Security tests
+## Phase 1–2: COMPLETE
+## Phase 3A–3I: COMPLETE
+## Phase 3J — Integration & Closure: COMPLETE
+- [x] Assessment API/CLI/SDK
+- [x] ControlPlaneIssuer per-step grants
+- [x] Tools/stub on Broker→Sandbox→Router
+- [x] Catalog assessment views
+- [x] E2E + security tests
+- [x] Extension boundary doc
 
-## Project documentation
-- Architecture audit (roadmap): `docs/ARCHITECTURE_AUDIT.md`
+**Phase 3 frozen.** Architecture audit: `docs/ARCHITECTURE_AUDIT.md`

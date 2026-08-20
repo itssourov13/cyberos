@@ -37,21 +37,35 @@ type TaskView struct {
 	NotBefore    *time.Time             `json:"not_before,omitempty"`
 }
 
-// Catalog is a lightweight in-memory index for Phase 3A dashboard listings.
+// AssessmentView is a durable-facing assessment summary for API/UI.
+type AssessmentView struct {
+	ID          string `json:"id"`
+	ProjectID   string `json:"project_id"`
+	ScopeID     string `json:"scope_id"`
+	PrincipalID string `json:"principal_id"`
+	Title       string `json:"title"`
+	Target      string `json:"target,omitempty"`
+	State       string `json:"state"`
+	StepCount   int    `json:"step_count"`
+}
+
+// Catalog is an in-memory index for dashboard listings, synced from services.
 // It is not a source of authorization.
 type Catalog struct {
-	mu       sync.RWMutex
-	projects map[contracts.ProjectID]ProjectView
-	scopes   map[contracts.ScopeID]ScopeView
-	tasks    map[contracts.TaskID]TaskView
+	mu          sync.RWMutex
+	projects    map[contracts.ProjectID]ProjectView
+	scopes      map[contracts.ScopeID]ScopeView
+	tasks       map[contracts.TaskID]TaskView
+	assessments map[string]AssessmentView
 }
 
 // NewCatalog constructs an empty catalog.
 func NewCatalog() *Catalog {
 	return &Catalog{
-		projects: make(map[contracts.ProjectID]ProjectView),
-		scopes:   make(map[contracts.ScopeID]ScopeView),
-		tasks:    make(map[contracts.TaskID]TaskView),
+		projects:    make(map[contracts.ProjectID]ProjectView),
+		scopes:      make(map[contracts.ScopeID]ScopeView),
+		tasks:       make(map[contracts.TaskID]TaskView),
+		assessments: make(map[string]AssessmentView),
 	}
 }
 
@@ -137,3 +151,24 @@ func (c *Catalog) SeedDemo() {
 		Title: "Demo enumeration", State: contracts.TaskStatePending, Type: contracts.TaskTypeRecon,
 	})
 }
+
+// UpsertAssessment stores an assessment view.
+func (c *Catalog) UpsertAssessment(a AssessmentView) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.assessments[a.ID] = a
+}
+
+// ListAssessments returns assessment summaries.
+func (c *Catalog) ListAssessments() []AssessmentView {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make([]AssessmentView, 0, len(c.assessments))
+	for _, a := range c.assessments {
+		out = append(out, a)
+	}
+	return out
+}
+
+// SyncTask upserts a task view from domain-like fields (durable path helper).
+func (c *Catalog) SyncTask(v TaskView) { c.UpsertTask(v) }

@@ -9,19 +9,23 @@ import (
 	"time"
 
 	appscope "cyberos/internal/application/scope"
+	"cyberos/internal/assessment"
 	"cyberos/internal/audit"
 	"cyberos/internal/broker"
 	"cyberos/internal/capability"
 	"cyberos/internal/contracts"
 	"cyberos/internal/controlplane"
 	domaincap "cyberos/internal/domain/capability"
+	"cyberos/internal/events"
 	"cyberos/internal/evidence"
+	"cyberos/internal/execution"
 	"cyberos/internal/execution/mock"
 	"cyberos/internal/execution/sandbox"
 	"cyberos/internal/findings"
 	"cyberos/internal/identity"
 	"cyberos/internal/provenance"
 	"cyberos/internal/taskengine"
+	"cyberos/internal/tools"
 )
 
 // Client is the SDK entrypoint. Sensitive operations always go through
@@ -39,23 +43,57 @@ type Client struct {
 	Provenance *provenance.Service
 	Audit      *audit.Service
 	Catalog    *Catalog
+	Assessment *assessment.Orchestrator
+	Tools      *tools.Manager
+	Events     *events.Store
+	Hub        *events.Hub
+	ExecReg    *execution.Registry
 }
 
 // NewInMemory constructs a client with mock broker, issuer, evidence stack,
 // and in-memory capability registry. Wire Identity/Scopes/Control/Tasks for
 // full authorization flows.
 func NewInMemory() *Client {
+	ev := evidence.NewService()
+	evStore := events.NewStore()
+	hub := events.NewHub()
+	execReg := execution.NewRegistry()
+	toolMgr := tools.NewManager(nil)
+	_ = toolMgr.Register(tools.NewStubScanner(nil))
+	_ = toolMgr.RegisterAllExecutors(execReg)
+	// Prefer tool router when available; fall back still safe via mock if registry empty.
+	inner := sandbox.New(&execution.Router{Reg: execReg})
+	// Also keep mock as default for grants without executor hints
+	_ = execReg.Register(mockToolExecutor{})
+	execReg.SetDefault("mock")
+	brk := broker.New(inner)
 	c := &Client{
 		Caps:       capability.NewRegistry(nil),
 		Issuer:     broker.NewIssuer(5 * time.Minute),
-		Broker:     broker.New(sandbox.New(mock.New())),
-		Evidence:   evidence.NewService(),
-		Findings:   findings.NewService(evidence.NewService()),
+		Broker:     brk,
+		Evidence:   ev,
+		Findings:   findings.NewService(ev),
 		Provenance: provenance.NewService(),
 		Catalog:    NewCatalog(),
+		Events:     evStore,
+		Hub:        hub,
+		Tools:      toolMgr,
+		ExecReg:    execReg,
 	}
 	c.Catalog.SeedDemo()
 	return c
+}
+
+// mockToolExecutor adapts mock.Executor to ToolExecutor for registry default.
+type mockToolExecutor struct{}
+
+func (mockToolExecutor) Manifest() contracts.ToolManifest {
+	return contracts.ToolManifest{
+		ID: "mock", Name: "Mock", Version: "1", Runtime: contracts.PluginRuntimeGo, ExecutorID: "mock",
+	}
+}
+func (mockToolExecutor) Execute(req contracts.ExecutionRequest) (contracts.ExecutionResult, error) {
+	return mock.New().Execute(req)
 }
 
 // WithIdentity sets the identity service.
@@ -77,6 +115,21 @@ func (c *Client) WithAudit(a *audit.Service) *Client { c.Audit = a; return c }
 func (c *Client) WithEvidence(e *evidence.Service) *Client {
 	c.Evidence = e
 	c.Findings = findings.NewService(e)
+	return c
+}
+
+// WireAssessment attaches ControlPlaneIssuer + orchestrator using this client's services.
+// Call after WithIdentity/WithScopes/WithControlPlane.
+func (c *Client) WireAssessment() *Client {
+	if c.Control == nil || c.Issuer == nil || c.Broker == nil {
+		return c
+	}
+	issuer := assessment.ControlPlaneIssuer{Control: c.Control, Issuer: c.Issuer}
+	orch := assessment.NewOrchestrator(issuer, c.Broker)
+	if c.Evidence != nil {
+		orch = orch.WithEvidence(c.Evidence, c.Findings, c.Provenance, c.Events)
+	}
+	c.Assessment = orch
 	return c
 }
 

@@ -1,8 +1,8 @@
 # Handoff
 
-Phase 3I complete. Tag: `v0.3.0-phase3i`.
+Phase 3J complete. Tag: `v0.3.0-phase3j`.
 
-Project architecture audit is recorded in:
-`docs/ARCHITECTURE_AUDIT.md`
+Phase 3 is integrated and frozen.
+Do not start Phase 3K or Phase 4 without explicit approval.
 
-Do not start Phase 3J without explicit approval.
+See: docs/ARCHITECTURE_AUDIT.md, docs/EXTENSIONS.md
