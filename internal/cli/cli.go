@@ -67,6 +67,10 @@ func (a *App) Run(args []string) int {
 		return a.cmdAssets(args[1:])
 	case "risks":
 		return a.cmdRisks(args[1:])
+	case "cases":
+		return a.cmdCases(args[1:])
+	case "reports":
+		return a.cmdReports(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		printHelp()
@@ -94,6 +98,8 @@ Usage:
   cyberos findings list|get|assessment
   cyberos assets list|get
   cyberos risks list|get|finding|asset|assessment|summary
+  cyberos cases list|get|create|status
+  cyberos reports list|get|export
   cyberos serve
 
 Sensitive operations use Control Plane → Grant → Broker → Sandbox.
@@ -546,6 +552,97 @@ func (a *App) cmdRisks(args []string) int {
 			return 1
 		}
 		_ = enc.Encode(a.SDK.RiskPrio.SummarizeAssessment(args[1]))
+		return 0
+	default:
+		return 1
+	}
+}
+
+func (a *App) cmdCases(args []string) int {
+	if a.SDK == nil || a.SDK.Cases == nil {
+		fmt.Fprintln(os.Stderr, "cases not configured")
+		return 1
+	}
+	if len(args) == 0 {
+		fmt.Println("usage: cases list|get|create|status")
+		return 1
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	switch args[0] {
+	case "list":
+		_ = enc.Encode(a.SDK.Cases.ListByProject(""))
+		return 0
+	case "get":
+		if len(args) < 2 {
+			return 1
+		}
+		c, err := a.SDK.Cases.Get(args[1])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		_ = enc.Encode(c)
+		return 0
+	case "status":
+		if len(args) < 3 {
+			fmt.Println("usage: cases status <id> <STATUS>")
+			return 1
+		}
+		c, err := a.SDK.Cases.TransitionStatus(args[1], contracts.CaseStatus(args[2]))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		_ = enc.Encode(c)
+		return 0
+	default:
+		return 1
+	}
+}
+
+func (a *App) cmdReports(args []string) int {
+	if a.SDK == nil || a.SDK.Reports == nil {
+		fmt.Fprintln(os.Stderr, "reports not configured")
+		return 1
+	}
+	if len(args) == 0 {
+		fmt.Println("usage: reports list|get|export")
+		return 1
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	switch args[0] {
+	case "list":
+		_ = enc.Encode(a.SDK.Reports.List())
+		return 0
+	case "get":
+		if len(args) < 2 {
+			return 1
+		}
+		r, err := a.SDK.Reports.Get(args[1])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		_ = enc.Encode(r)
+		return 0
+	case "export":
+		if len(args) < 2 {
+			return 1
+		}
+		format := contracts.ReportFormatJSON
+		for i := 2; i < len(args); i++ {
+			if args[i] == "--format" && i+1 < len(args) {
+				format = contracts.ReportFormat(args[i+1])
+			}
+		}
+		b, err := a.SDK.Reports.Export(args[1], format)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Print(string(b))
 		return 0
 	default:
 		return 1

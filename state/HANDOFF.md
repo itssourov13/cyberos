@@ -1,5 +1,5 @@
 # Handoff
 
-Phase 6F complete. Tag: `v0.6.0-phase6f`.
+Phase 6G complete. Tag: `v0.6.0-phase6g`.
 
-Do not start Phase 6G without approval.
+Do not start Phase 6H without approval.

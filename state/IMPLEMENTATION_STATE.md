@@ -1,11 +1,10 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-20 (Phase 6F complete)
+**Last Updated:** 2026-08-20 (Phase 6G complete)
 
-## Phase 6F — Risk & Prioritization: COMPLETE
-- [x] Deterministic scoring model cyberos-risk-v1
-- [x] Factors + priority + recalculation
-- [x] Assessment summary
+## Phase 6G — Case Management + Reporting: COMPLETE
+- [x] Security cases + status transitions
+- [x] Finding/asset linkage; risk-derived priority
+- [x] Report schema cyberos-report-v1 (JSON/Markdown)
 - [x] API/CLI/SDK
-- [x] Migration 009
-- [x] Risk ≠ authorization
+- [x] Migration 010
