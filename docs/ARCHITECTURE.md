@@ -236,3 +236,12 @@ Tag: `v0.2.0-phase2`
 - process.Result: exit code, duration, timeout, truncated output
 - tools.ProcessToolAdapter: binary from descriptor, version health probe
 - No security product hard-coded in core
+
+## Phase 3I — Assessment Orchestration Foundation
+
+- `Assessment` model bound to project/scope/principal/target
+- State machine: CREATED → PLANNED → RUNNING → SUCCEEDED|FAILED|CANCELLED
+- Sequential steps by capability (+ optional executor hint)
+- Each step issues its own grant via GrantIssuer then Broker.Execute
+- Evidence/findings/provenance/events hooks
+- Orchestration ≠ authorization
