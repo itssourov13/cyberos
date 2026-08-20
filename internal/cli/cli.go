@@ -59,6 +59,8 @@ func (a *App) Run(args []string) int {
 		return a.cmdDashboard()
 	case "assessments":
 		return a.cmdAssessments(args[1:])
+	case "tools":
+		return a.cmdTools(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		printHelp()
@@ -82,6 +84,7 @@ Usage:
   cyberos tasks [--project <id>] [--scope <id>]
   cyberos dashboard
   cyberos assessments list|create|plan|run|get
+  cyberos tools list|health|info|packs
   cyberos serve
 
 Sensitive operations use Control Plane → Grant → Broker → Sandbox.
@@ -350,6 +353,53 @@ func (a *App) cmdAssessments(args []string) int {
 		return 0
 	default:
 		fmt.Println("unknown assessments subcommand")
+		return 1
+	}
+}
+
+func (a *App) cmdTools(args []string) int {
+	if a.SDK == nil || a.SDK.Platform == nil {
+		fmt.Fprintln(os.Stderr, "tool platform not configured")
+		return 1
+	}
+	p := a.SDK.Platform
+	if len(args) == 0 {
+		fmt.Println("usage: tools list|health|info <id>|packs")
+		return 1
+	}
+	switch args[0] {
+	case "list":
+		for _, d := range p.Discover() {
+			fmt.Printf("%s\t%s\t%s\t%s\n", d.ID, d.Name, d.Runtime, d.ExecutorID)
+		}
+		return 0
+	case "health":
+		st := p.HealthSweep(context.Background())
+		for id, s := range st {
+			fmt.Printf("%s\t%s\t%s\t%s\n", id, s.Availability, s.Health.Status, s.Health.Message)
+		}
+		return 0
+	case "info":
+		if len(args) < 2 {
+			fmt.Println("usage: tools info <tool-id>")
+			return 1
+		}
+		ad, err := p.Resolve(args[1])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(ad.Descriptor())
+		return 0
+	case "packs":
+		for _, pack := range p.Packs().List() {
+			fmt.Printf("%s\t%s\t%v\n", pack.ID, pack.Name, pack.ToolIDs)
+		}
+		return 0
+	default:
+		fmt.Println("unknown tools subcommand")
 		return 1
 	}
 }

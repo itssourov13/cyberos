@@ -10,8 +10,8 @@ import (
 
 	appscope "cyberos/internal/application/scope"
 	"cyberos/internal/assessment"
-	"cyberos/internal/auth"
 	"cyberos/internal/audit"
+	"cyberos/internal/auth"
 	"cyberos/internal/broker"
 	"cyberos/internal/capability"
 	"cyberos/internal/contracts"
@@ -50,6 +50,7 @@ type Client struct {
 	Hub        *events.Hub
 	ExecReg    *execution.Registry
 	Auth       auth.Authenticator
+	Platform   *tools.Platform
 }
 
 // NewInMemory constructs a client with mock broker, issuer, evidence stack,
@@ -80,6 +81,7 @@ func NewInMemory() *Client {
 		Events:     evStore,
 		Hub:        hub,
 		Tools:      toolMgr,
+		Platform:   tools.NewPlatform(toolMgr),
 		ExecReg:    execReg,
 	}
 	// Phase 4A: no demo seed — catalog starts empty until RefreshFromRepos or explicit upserts.

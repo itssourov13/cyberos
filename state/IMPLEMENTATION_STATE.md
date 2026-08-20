@@ -1,11 +1,10 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-20 (Phase 6B complete)
+**Last Updated:** 2026-08-20 (Phase 6C complete)
 
-## Phase 6B — Extensible Multi-Language Security Tool Platform: COMPLETE
-- [x] Manifest + Availability model
-- [x] tools.Platform (register/discover/health/resolve/wire)
-- [x] PackRegistry (recon/web/vuln/network IDs)
-- [x] Recon pack + Nmap reference member
-- [x] Runtime labels: go/python/rust/other
-- [x] Docs TOOLS.md / EXTENSIONS.md
+## Phase 6C — Security Tool Packs + Multi-Runtime Adapters: COMPLETE
+- [x] Packs: recon, web, network, vulnerability
+- [x] Adapters: nmap, httpprobe, pythonprobe, rustprobe
+- [x] CLI tools list/health/info/packs
+- [x] SDK Platform field
+- [x] Security tests multi-pack multi-runtime

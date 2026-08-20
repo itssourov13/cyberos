@@ -102,3 +102,34 @@ Python/Rust tools use the same boundary via process allowlist + adapter, not as 
 ### Runtimes
 
 Go / Python / Rust / Other labels are metadata. All execution still uses allowlisted process policy + Broker.
+
+## Phase 6C — Packs and multi-runtime adapters
+
+### Packs
+
+| Pack | Tools |
+|------|--------|
+| `pack.recon` | Nmap |
+| `pack.web` | HTTP probe (curl) |
+| `pack.network` | Python probe, Rust probe |
+| `pack.vulnerability` | Reserved (empty; future scanners) |
+
+### Multi-runtime proof
+
+| Adapter | Runtime | Binary | Capability |
+|---------|---------|--------|------------|
+| nmap | go | nmap | recon.network.portscan |
+| httpprobe | go | curl | web.http.probe |
+| pythonprobe | python | python3 | runtime.python.probe |
+| rustprobe | rust | rustc | runtime.rust.probe |
+
+All run only through allowlisted process policy + Broker. Fixed argv; no user code injection.
+
+### CLI
+
+```
+cyberos tools list
+cyberos tools health
+cyberos tools info <tool-id>
+cyberos tools packs
+```
