@@ -63,6 +63,14 @@ func (s *Service) ListByProject(ctx context.Context, projectID contracts.Project
 	return s.repo.ListByProject(ctx, projectID, limit, offset)
 }
 
+// ListAll returns scopes across projects (durable catalog support).
+func (s *Service) ListAll(ctx context.Context, limit, offset int) ([]*scope.Scope, error) {
+	if s == nil || s.repo == nil {
+		return nil, fmt.Errorf("%w: scope service not configured", contracts.ErrInvalidArgument)
+	}
+	return s.repo.ListAll(ctx, limit, offset)
+}
+
 // RequireActive loads the scope and ensures it is currently usable.
 // This is the mandatory gate before any authorization or task work.
 //

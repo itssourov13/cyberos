@@ -60,6 +60,7 @@ func (m *memTaskRepo) ListByScope(_ context.Context, scopeID contracts.ScopeID, 
 	return out, nil
 }
 
+func (m *memTaskRepo) List(context.Context, int, int) ([]*task.Task, error) { return nil, nil }
 func (m *memTaskRepo) ListByState(context.Context, contracts.TaskState, int, int) ([]*task.Task, error) {
 	return nil, nil
 }
@@ -113,6 +114,9 @@ func (m *memScopeRepo) GetByID(_ context.Context, id contracts.ScopeID) (*domain
 }
 func (m *memScopeRepo) Update(context.Context, *domainscope.Scope) error { return nil }
 func (m *memScopeRepo) ListByProject(context.Context, contracts.ProjectID, int, int) ([]*domainscope.Scope, error) {
+	return nil, nil
+}
+func (m *memScopeRepo) ListAll(context.Context, int, int) ([]*domainscope.Scope, error) {
 	return nil, nil
 }
 

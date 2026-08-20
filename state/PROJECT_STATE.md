@@ -3,7 +3,7 @@
 **Last Updated:** 2026-08-20
 
 ## Current
-**Phase 3 COMPLETE** (`v0.3.0-phase3j`)
+**Phase 4A** completed (`v0.4.0-phase4a`)
 
 ## Next
-Phase 4+ only with explicit approval (see ARCHITECTURE_AUDIT.md).
+Awaiting approval for Phase 4B+.

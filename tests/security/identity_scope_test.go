@@ -64,6 +64,9 @@ func (m *memScopeRepo) Update(context.Context, *domainscope.Scope) error { retur
 func (m *memScopeRepo) ListByProject(context.Context, contracts.ProjectID, int, int) ([]*domainscope.Scope, error) {
 	return nil, nil
 }
+func (m *memScopeRepo) ListAll(context.Context, int, int) ([]*domainscope.Scope, error) {
+	return nil, nil
+}
 
 // Security invariant: inactive principal cannot pass RequireActive.
 func TestSecurity_InactivePrincipalRejected(t *testing.T) {

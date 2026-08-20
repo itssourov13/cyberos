@@ -53,3 +53,12 @@ TaskRepository adds `ListByState` and `ListDueScheduled`.
 - PromoteDueScheduled → PENDING only
 - ClaimPending with leases + RecoverExpiredLeases
 - **Never** authorizes or executes
+
+## Phase 4A — Durable catalog
+
+- `ScopeRepository.ListAll`, `TaskRepository.List`
+- `AssessmentRepository` + migration `003_assessments.sql`
+- `sdk.Catalog.RefreshFromRepos` loads projects/scopes/tasks/assessments
+- `sdk.WithRepos` / `RefreshCatalog` — **no SeedDemo by default**
+- `internal/storage/memory` for tests without PostgreSQL
+- Persistence does not authorize execution

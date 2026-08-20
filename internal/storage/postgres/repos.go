@@ -11,5 +11,6 @@ func NewRepositories(db *DB) *ports.Repositories {
 		Tasks:        NewTaskRepo(db),
 		Principals:   NewPrincipalRepo(db),
 		Capabilities: NewCapabilityRepo(db),
+		Assessments:  NewAssessmentRepo(db),
 	}
 }

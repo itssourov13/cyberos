@@ -166,7 +166,6 @@ func (r *TaskRepo) ListDueScheduled(ctx context.Context, now time.Time, limit in
 	return scanTaskRows(rows)
 }
 
-
 func scanTaskRows(rows *sql.Rows) ([]*task.Task, error) {
 	var out []*task.Task
 	for rows.Next() {
@@ -227,4 +226,16 @@ func scanTaskRow(s scannable) (*task.Task, error) {
 		t.Deadline = &d
 	}
 	return t, nil
+}
+
+func (r *TaskRepo) List(ctx context.Context, limit, offset int) ([]*task.Task, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := r.db.QueryContext(ctx, taskSelect+` ORDER BY created_at DESC LIMIT $1 OFFSET $2`, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTaskRows(rows)
 }

@@ -63,6 +63,9 @@ func (m *memS) Update(context.Context, *domainscope.Scope) error { return nil }
 func (m *memS) ListByProject(context.Context, contracts.ProjectID, int, int) ([]*domainscope.Scope, error) {
 	return nil, nil
 }
+func (m *memS) ListAll(context.Context, int, int) ([]*domainscope.Scope, error) {
+	return nil, nil
+}
 
 func testClient(t *testing.T) *sdk.Client {
 	t.Helper()
@@ -145,6 +148,8 @@ func TestGrantRequiresAuthorization(t *testing.T) {
 
 func TestCatalogAndDashboard(t *testing.T) {
 	client := sdk.NewInMemory()
+	client.Catalog.UpsertProject(sdk.ProjectView{ID: "proj-1", Name: "Demo"})
+	client.Catalog.UpsertTask(sdk.TaskView{ID: "task-1", ProjectID: "proj-1", Title: "T", State: contracts.TaskStatePending})
 	srv := NewServer(client)
 	h := srv.Handler()
 

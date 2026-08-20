@@ -62,6 +62,9 @@ func (m *memScopeRepo) Update(context.Context, *domainscope.Scope) error { retur
 func (m *memScopeRepo) ListByProject(context.Context, contracts.ProjectID, int, int) ([]*domainscope.Scope, error) {
 	return nil, nil
 }
+func (m *memScopeRepo) ListAll(context.Context, int, int) ([]*domainscope.Scope, error) {
+	return nil, nil
+}
 
 func setupCP(t *testing.T) (*Service, *memPrincipalRepo, *memScopeRepo) {
 	t.Helper()

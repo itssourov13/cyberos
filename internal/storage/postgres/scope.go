@@ -137,3 +137,25 @@ func scanScope(s scannable) (*scope.Scope, error) {
 	}
 	return sc, nil
 }
+
+func (r *ScopeRepo) ListAll(ctx context.Context, limit, offset int) ([]*scope.Scope, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, project_id, name, status, starts_at, expires_at, constraints, created_at, updated_at, metadata
+		FROM scopes ORDER BY created_at DESC LIMIT $1 OFFSET $2`, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*scope.Scope
+	for rows.Next() {
+		s, err := scanScope(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}

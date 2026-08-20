@@ -73,6 +73,9 @@ func (m *memS) Update(context.Context, *domainscope.Scope) error { return nil }
 func (m *memS) ListByProject(context.Context, contracts.ProjectID, int, int) ([]*domainscope.Scope, error) {
 	return nil, nil
 }
+func (m *memS) ListAll(context.Context, int, int) ([]*domainscope.Scope, error) {
+	return nil, nil
+}
 
 type memT struct {
 	items map[contracts.TaskID]*task.Task
@@ -103,6 +106,14 @@ func (m *memT) ListByScope(context.Context, contracts.ScopeID, int, int) ([]*tas
 	return nil, nil
 }
 
+func (m *memT) List(_ context.Context, limit, offset int) ([]*task.Task, error) {
+	var out []*task.Task
+	for _, t := range m.items {
+		cp := *t
+		out = append(out, &cp)
+	}
+	return out, nil
+}
 func (m *memT) ListByState(_ context.Context, state contracts.TaskState, limit, offset int) ([]*task.Task, error) {
 	var out []*task.Task
 	for _, t := range m.items {

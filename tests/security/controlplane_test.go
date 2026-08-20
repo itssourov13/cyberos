@@ -61,6 +61,9 @@ func (m *cpScopeRepo) Update(context.Context, *domainscope.Scope) error { return
 func (m *cpScopeRepo) ListByProject(context.Context, contracts.ProjectID, int, int) ([]*domainscope.Scope, error) {
 	return nil, nil
 }
+func (m *cpScopeRepo) ListAll(context.Context, int, int) ([]*domainscope.Scope, error) {
+	return nil, nil
+}
 
 func newCP(t *testing.T) (*controlplane.Service, *cpPrincipalRepo, *cpScopeRepo) {
 	t.Helper()

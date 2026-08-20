@@ -62,6 +62,9 @@ func (m *bMemS) Update(context.Context, *domainscope.Scope) error { return nil }
 func (m *bMemS) ListByProject(context.Context, contracts.ProjectID, int, int) ([]*domainscope.Scope, error) {
 	return nil, nil
 }
+func (m *bMemS) ListAll(context.Context, int, int) ([]*domainscope.Scope, error) {
+	return nil, nil
+}
 
 // Security invariant: no valid grant ⇒ no execution.
 func TestSecurity_NoGrantNoExecution(t *testing.T) {

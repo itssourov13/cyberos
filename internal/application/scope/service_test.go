@@ -56,6 +56,9 @@ func (m *memoryScopeRepo) ListByProject(_ context.Context, projectID contracts.P
 	}
 	return out, nil
 }
+func (m *memoryScopeRepo) ListAll(context.Context, int, int) ([]*domainscope.Scope, error) {
+	return nil, nil
+}
 
 func TestRequireActiveHappy(t *testing.T) {
 	repo := newMemScopeRepo()

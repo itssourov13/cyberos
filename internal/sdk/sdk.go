@@ -80,7 +80,7 @@ func NewInMemory() *Client {
 		Tools:      toolMgr,
 		ExecReg:    execReg,
 	}
-	c.Catalog.SeedDemo()
+	// Phase 4A: no demo seed — catalog starts empty until RefreshFromRepos or explicit upserts.
 	return c
 }
 

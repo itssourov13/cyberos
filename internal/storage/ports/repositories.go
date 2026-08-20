@@ -36,6 +36,7 @@ type ScopeRepository interface {
 	Create(ctx context.Context, s *scope.Scope) error
 	GetByID(ctx context.Context, id contracts.ScopeID) (*scope.Scope, error)
 	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]*scope.Scope, error)
+	ListAll(ctx context.Context, limit, offset int) ([]*scope.Scope, error)
 	Update(ctx context.Context, s *scope.Scope) error
 }
 
@@ -47,6 +48,7 @@ type TaskRepository interface {
 	ListByScope(ctx context.Context, scopeID contracts.ScopeID, limit, offset int) ([]*task.Task, error)
 	ListByState(ctx context.Context, state contracts.TaskState, limit, offset int) ([]*task.Task, error)
 	ListDueScheduled(ctx context.Context, now time.Time, limit int) ([]*task.Task, error)
+	List(ctx context.Context, limit, offset int) ([]*task.Task, error)
 }
 
 // PrincipalRepository persists and retrieves principals.
@@ -63,6 +65,29 @@ type CapabilityRepository interface {
 	List(ctx context.Context, limit, offset int) ([]*capability.Capability, error)
 }
 
+// AssessmentRecord is a persistence-friendly assessment snapshot (not authorization).
+type AssessmentRecord struct {
+	ID          string
+	ProjectID   string
+	ScopeID     string
+	PrincipalID string
+	Title       string
+	Target      string
+	State       string
+	StepsJSON   []byte
+	ResultsJSON []byte
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// AssessmentRepository persists assessment orchestration state.
+type AssessmentRepository interface {
+	Create(ctx context.Context, r AssessmentRecord) error
+	Update(ctx context.Context, r AssessmentRecord) error
+	GetByID(ctx context.Context, id string) (AssessmentRecord, error)
+	List(ctx context.Context, limit, offset int) ([]AssessmentRecord, error)
+}
+
 // Repositories aggregates all repository ports for convenient wiring.
 type Repositories struct {
 	Projects     ProjectRepository
@@ -71,4 +96,5 @@ type Repositories struct {
 	Tasks        TaskRepository
 	Principals   PrincipalRepository
 	Capabilities CapabilityRepository
+	Assessments  AssessmentRepository
 }
