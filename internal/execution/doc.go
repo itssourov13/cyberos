@@ -1,3 +1,3 @@
-// Package execution contains executor implementations.
-// Phase 1G provides only the safe mock executor under execution/mock.
+// Package execution hosts executors, registry/router, sandbox, lifecycle, and runtimes.
+// The Tool Broker is the sole public execution gateway.
 package execution

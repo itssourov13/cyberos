@@ -212,3 +212,11 @@ Tag: `v0.2.0-phase2`
 - `plugin.Registry`: Register → Activate → Disable; optional capability discovery
 - All real execution remains Tool Broker → Sandbox under grant
 - Discovery ≠ authorization
+
+## Phase 3F — Extensible Tool Execution Runtime
+
+- `contracts.ToolManifest` / `ToolExecutor`
+- `execution.Registry` + `Router` (dispatch by grant executor hints)
+- `execution/process` fail-closed external process boundary (allowlist required)
+- `execution/runtime` Go/Python/Rust labeled adapters (no hard-coded tools)
+- Chain: Grant → Broker → Sandbox → Router/Executor

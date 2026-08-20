@@ -1,10 +1,10 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-20 (Phase 3E complete)
+**Last Updated:** 2026-08-20 (Phase 3F complete)
 
-## Phase 3E — Plugin + Tool Adapter Architecture: COMPLETE
-- [x] Plugin manifest/runtime/state contracts
-- [x] Adapter interface (Prepare only)
-- [x] Plugin registry lifecycle
-- [x] Capability declaration on activate
-- [x] Security tests (discovery ≠ execution)
+## Phase 3F — Extensible Tool Execution Runtime: COMPLETE
+- [x] ToolManifest + ToolExecutor contracts
+- [x] Executor registry/router
+- [x] Process adapter (disabled by default)
+- [x] Go/Python/Rust runtime adapters
+- [x] Security tests (grant required; no unrestricted process)
