@@ -10,6 +10,7 @@ import (
 
 	"cyberos/internal/contracts"
 	"cyberos/internal/controlplane"
+	"cyberos/internal/events"
 	"cyberos/internal/sdk"
 	"cyberos/pkg/version"
 )
@@ -17,6 +18,7 @@ import (
 // Server is the API v1 HTTP handler root.
 type Server struct {
 	SDK *sdk.Client
+	hub *events.Hub
 }
 
 // NewServer constructs an API server.
@@ -38,6 +40,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/tasks", s.handleTasks)
 	mux.HandleFunc("/api/v1/tasks/{id}", s.handleTaskByID)
 	mux.HandleFunc("/api/v1/dashboard", s.handleDashboard)
+	mux.HandleFunc("/api/v1/events/stream", s.handleEventStream)
 	// Web UI foundation (static)
 	mux.Handle("/ui/", http.StripPrefix("/ui/", uiFileServer()))
 	mux.HandleFunc("/", s.handleRoot)

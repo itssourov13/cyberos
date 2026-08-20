@@ -2,8 +2,8 @@ package events
 
 import "cyberos/internal/contracts"
 
-// Well-known event types for Phase 1 security-critical actions.
-// Commands (e.g. CreateTask) are NOT events; these are facts after the fact.
+// Well-known event types for security-critical and runner lifecycle facts.
+// Commands are NOT events; these are facts after the fact.
 const (
 	TypeDecisionAllowed    contracts.EventType = "controlplane.decision.allowed"
 	TypeDecisionDenied     contracts.EventType = "controlplane.decision.denied"
@@ -17,4 +17,10 @@ const (
 	TypeTaskStateChanged   contracts.EventType = "task.state_changed"
 	TypeScopeCreated       contracts.EventType = "scope.created"
 	TypePrincipalCreated   contracts.EventType = "principal.created"
+
+	// Task runner lifecycle (Phase 3C) — facts only; not authorization.
+	TypeRunnerPromoted  contracts.EventType = "runner.task.promoted"
+	TypeRunnerClaimed   contracts.EventType = "runner.task.claimed"
+	TypeRunnerReleased  contracts.EventType = "runner.task.released"
+	TypeRunnerRecovered contracts.EventType = "runner.lease.recovered"
 )

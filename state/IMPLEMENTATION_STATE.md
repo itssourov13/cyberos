@@ -1,11 +1,10 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-20 (Phase 3B complete)
+**Last Updated:** 2026-08-20 (Phase 3C complete)
 
-## Phase 1–2 + 3A: COMPLETE
-## Phase 3B — Persistent Task State + Durable Runner: COMPLETE
-- [x] Migration 002 durable task columns + runner events
-- [x] TaskRepository ListByState / ListDueScheduled
-- [x] Postgres task persistence for schedule/retry/deps
-- [x] runner.Runner promote/claim/recover (no auth bypass)
-- [x] Unit + security tests
+## Phase 3C — Worker/Recovery + Events/Audit + SSE: COMPLETE
+- [x] Worker TickOnce/Start/Stop claim→process→release
+- [x] Lease recovery with events
+- [x] Runner lifecycle event types + store append
+- [x] events.Hub + GET /api/v1/events/stream
+- [x] Security: worker ≠ authorization; SSE read-only

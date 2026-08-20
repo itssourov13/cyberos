@@ -62,3 +62,18 @@ Do **not** introduce Kafka or similar infrastructure in Phase 0/1.
 - ByCorrelation for forensic reconstruction
 
 Commands remain separate from Events (this package only records facts).
+
+## Phase 3C — Worker events + SSE
+
+### Runner event types
+- `runner.task.promoted`
+- `runner.task.claimed`
+- `runner.task.released`
+- `runner.lease.recovered`
+
+### Worker
+`runner.Worker` loop: promote → claim → process(optional) → release.  
+ProcessFunc must still use Control Plane → Grant for any execution.
+
+### SSE
+`GET /api/v1/events/stream` — read-only fan-out via `events.Hub`.
