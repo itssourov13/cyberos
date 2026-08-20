@@ -1,13 +1,11 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-20 (Phase 5 complete)
+**Last Updated:** 2026-08-20 (Phase 6A complete)
 
-## Phase 5 — Authentication + Tenant/Project Isolation: COMPLETE
-- [x] API key authenticator + memory key store
-- [x] OIDC-ready fail-closed boundary
-- [x] HTTP middleware + SSE token
-- [x] Principal context binding
-- [x] Tenant domain + Project.TenantID
-- [x] Cross-tenant rejection helpers
-- [x] Migration 006
-- [x] Security tests
+## Phase 6A — First Real Security Tool Adapter: COMPLETE
+- [x] Nmap adapter (independent package)
+- [x] Lifecycle: manifest, health, version, capability
+- [x] Process allowlist path; shell disabled
+- [x] Normalized results
+- [x] Broker registration; no-grant fail closed
+- [x] docs/TOOLS.md

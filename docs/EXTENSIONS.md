@@ -11,3 +11,9 @@
 
 **Rule:** All execution enters through **Tool Broker → Sandbox → Executor**.
 Python/Rust/TypeScript integrate as adapters or UI clients, not core rewrites.
+
+## Phase 6A — First real tool
+
+- Package `internal/tools/nmap` implements `tools.Adapter`
+- Capability `recon.network.portscan`
+- See `docs/TOOLS.md`

@@ -1,5 +1,5 @@
 # Handoff
 
-Phase 5 complete. Tag: `v0.5.0-phase5`.
+Phase 6A complete. Tag: `v0.6.0-phase6a`.
 
-Do not start Phase 6 or Admin/Break-Glass without approval.
+Do not start Phase 6B without approval.
