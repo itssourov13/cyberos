@@ -274,3 +274,11 @@ NormalizedResult → Finding Mapper (Ingest) → Evidence refs → Correlation q
 ```
 
 Findings are **observations**, not authorization. See fingerprint dedup statuses: NEW/UNCHANGED/UPDATED/REOPENED/RESOLVED.
+
+## Phase 6E — Asset & Target Intelligence
+
+```
+Target → Asset → ServiceEndpoint → Observation → (Findings via existing pipeline)
+```
+
+Inventory is observation-only; never authorizes execution.

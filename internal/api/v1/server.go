@@ -47,6 +47,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/assessments/{id}/plan", s.handleAssessmentPlan)
 	mux.HandleFunc("/api/v1/assessments/{id}/run", s.handleAssessmentRun)
 	mux.HandleFunc("/api/v1/findings", s.handleFindings)
+	mux.HandleFunc("/api/v1/assets", s.handleAssets)
+	mux.HandleFunc("/api/v1/assets/{id}", s.handleAssetByID)
 	mux.HandleFunc("/api/v1/findings/{id}", s.handleFindingByID)
 	mux.HandleFunc("/api/v1/assessments/{id}/findings", s.handleAssessmentFindings)
 	mux.HandleFunc("/api/v1/events/stream", s.handleEventStream)

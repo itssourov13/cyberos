@@ -63,6 +63,8 @@ func (a *App) Run(args []string) int {
 		return a.cmdTools(args[1:])
 	case "findings":
 		return a.cmdFindings(args[1:])
+	case "assets":
+		return a.cmdAssets(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		printHelp()
@@ -88,6 +90,7 @@ Usage:
   cyberos assessments list|create|plan|run|get
   cyberos tools list|health|info|packs
   cyberos findings list|get|assessment
+  cyberos assets list|get
   cyberos serve
 
 Sensitive operations use Control Plane → Grant → Broker → Sandbox.
@@ -443,6 +446,45 @@ func (a *App) cmdFindings(args []string) int {
 		return 0
 	default:
 		fmt.Println("unknown findings subcommand")
+		return 1
+	}
+}
+
+func (a *App) cmdAssets(args []string) int {
+	if a.SDK == nil || a.SDK.Assets == nil {
+		fmt.Fprintln(os.Stderr, "assets not configured")
+		return 1
+	}
+	if len(args) == 0 {
+		fmt.Println("usage: assets list --project <id> | get <id>")
+		return 1
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	switch args[0] {
+	case "list":
+		project := ""
+		for i := 1; i < len(args); i++ {
+			if args[i] == "--project" && i+1 < len(args) {
+				project = args[i+1]
+			}
+		}
+		_ = enc.Encode(a.SDK.Assets.ListByProject(contracts.ProjectID(project)))
+		return 0
+	case "get":
+		if len(args) < 2 {
+			fmt.Println("usage: assets get <id>")
+			return 1
+		}
+		as, err := a.SDK.Assets.Get(contracts.AssetID(args[1]))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		_ = enc.Encode(as)
+		return 0
+	default:
+		fmt.Println("unknown assets subcommand")
 		return 1
 	}
 }
