@@ -1,11 +1,10 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-20 (Phase 4B complete)
+**Last Updated:** 2026-08-20 (Phase 4C complete)
 
-## Phase 4A: COMPLETE
-## Phase 4B — Durable Events + Audit Storage: COMPLETE
-- [x] events.Backend + postgres EventBackend
-- [x] audit durable backend
-- [x] migration 004
-- [x] append-only + correlation queries
-- [x] security tests
+## Phase 4A–4B: COMPLETE
+## Phase 4C — Durable Worker Leases + Atomic Task Claiming: COMPLETE
+- [x] TryClaimAtomically on Store + Memory + Postgres (SKIP LOCKED)
+- [x] ClearExpiredLeases recovery
+- [x] Concurrent claim exclusivity
+- [x] Claim ≠ authorization

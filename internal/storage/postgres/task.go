@@ -239,3 +239,79 @@ func (r *TaskRepo) List(ctx context.Context, limit, offset int) ([]*task.Task, e
 	defer rows.Close()
 	return scanTaskRows(rows)
 }
+
+// TryClaimAtomically claims PENDING tasks with free or expired leases using
+// UPDATE ... WHERE ... RETURNING for cross-worker exclusivity.
+func (r *TaskRepo) TryClaimAtomically(ctx context.Context, worker string, leaseUntil, now time.Time, limit int) ([]*task.Task, error) {
+	if limit <= 0 {
+		limit = 1
+	}
+	// Select candidate IDs under row lock, then update.
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id FROM tasks
+		WHERE state = $1
+		  AND (lease_until IS NULL OR lease_until < $2)
+		ORDER BY updated_at ASC
+		LIMIT $3
+		FOR UPDATE SKIP LOCKED`,
+		string(contracts.TaskStatePending), now.UTC(), limit)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	var out []*task.Task
+	for _, id := range ids {
+		_, err := tx.ExecContext(ctx, `
+			UPDATE tasks SET worker_id=$2, lease_until=$3, updated_at=$4
+			WHERE id=$1 AND state=$5 AND (lease_until IS NULL OR lease_until < $4)`,
+			id, worker, leaseUntil.UTC(), now.UTC(), string(contracts.TaskStatePending))
+		if err != nil {
+			return nil, err
+		}
+		row := tx.QueryRowContext(ctx, taskSelect+` WHERE id=$1`, id)
+		tk, err := scanTaskRow(row)
+		if err != nil {
+			return nil, err
+		}
+		if tk.Metadata == nil {
+			tk.Metadata = map[string]string{}
+		}
+		tk.Metadata["runner_worker"] = worker
+		tk.Metadata["runner_lease_until"] = leaseUntil.UTC().Format(time.RFC3339)
+		out = append(out, tk)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ClearExpiredLeases clears worker_id/lease_until on expired leases.
+func (r *TaskRepo) ClearExpiredLeases(ctx context.Context, now time.Time) (int, error) {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE tasks SET worker_id=NULL, lease_until=NULL, updated_at=$1
+		WHERE lease_until IS NOT NULL AND lease_until < $1`, now.UTC())
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}

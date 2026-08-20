@@ -256,3 +256,9 @@ That document is the roadmap audit (sections A–J): completed vs partial layers
 
 Assessment + Tools wired through SDK/API/CLI with Control Plane grants.
 Extension boundaries: `docs/EXTENSIONS.md`.
+
+## Phase 4C — Atomic leases
+
+- `TryClaimAtomically` + `ClearExpiredLeases` on runner Store
+- PostgreSQL: `FOR UPDATE SKIP LOCKED` on PENDING tasks
+- Claim never sets AUTHORIZED/RUNNING or issues grants
