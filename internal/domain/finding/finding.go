@@ -15,11 +15,23 @@ type Finding struct {
 	TaskID        contracts.TaskID
 	ProjectID     contracts.ProjectID
 	ScopeID       contracts.ScopeID
+	AssessmentID  string
+	ExecutionID   string
+	PrincipalID   contracts.PrincipalID
+	ToolID        string
+	CapabilityID  contracts.CapabilityID
 	EvidenceIDs   []contracts.EvidenceID
 	Severity      contracts.FindingSeverity
+	Confidence    contracts.FindingConfidence
+	Status        contracts.FindingStatus
 	Title         string
 	Description   string
+	Target        string
+	Location      string
+	Fingerprint   string
 	ProducedAt    time.Time
+	FirstSeen     time.Time
+	LastSeen      time.Time
 	CorrelationID contracts.CorrelationID
 	Metadata      map[string]string
 }
@@ -60,6 +72,10 @@ func New(
 		Severity:    severity,
 		Title:       title,
 		ProducedAt:  now,
+		FirstSeen:   now,
+		LastSeen:    now,
+		Status:      contracts.FindingStatusNew,
+		Confidence:  contracts.FindingConfidenceMedium,
 		EvidenceIDs: make([]contracts.EvidenceID, 0),
 		Metadata:    make(map[string]string),
 	}, nil

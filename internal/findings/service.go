@@ -13,17 +13,19 @@ import (
 
 // Service records and retrieves Findings.
 type Service struct {
-	mu       sync.RWMutex
-	items    map[contracts.FindingID]*domainfinding.Finding
-	evidence *evidence.Service
+	mu            sync.RWMutex
+	items         map[contracts.FindingID]*domainfinding.Finding
+	byFingerprint map[string]*domainfinding.Finding
+	evidence      *evidence.Service
 }
 
 // NewService constructs a findings service.
 // evidenceSvc is used to verify supporting evidence exists and is linked.
 func NewService(evidenceSvc *evidence.Service) *Service {
 	return &Service{
-		items:    make(map[contracts.FindingID]*domainfinding.Finding),
-		evidence: evidenceSvc,
+		items:         make(map[contracts.FindingID]*domainfinding.Finding),
+		byFingerprint: make(map[string]*domainfinding.Finding),
+		evidence:      evidenceSvc,
 	}
 }
 
@@ -81,6 +83,9 @@ func (s *Service) Create(req CreateRequest) (*domainfinding.Finding, error) {
 	}
 	cp := *f
 	s.items[f.ID] = &cp
+	if cp.Fingerprint != "" {
+		s.byFingerprint[cp.Fingerprint] = &cp
+	}
 	return &cp, nil
 }
 

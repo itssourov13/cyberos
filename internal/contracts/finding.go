@@ -42,3 +42,44 @@ type FindingMetadata struct {
 	ProducedAt    Timestamp       `json:"produced_at"`
 	CorrelationID CorrelationID   `json:"correlation_id,omitempty"`
 }
+
+// FindingStatus is the lifecycle of an observed finding.
+type FindingStatus string
+
+const (
+	FindingStatusNew       FindingStatus = "NEW"
+	FindingStatusUnchanged FindingStatus = "UNCHANGED"
+	FindingStatusUpdated   FindingStatus = "UPDATED"
+	FindingStatusReopened  FindingStatus = "REOPENED"
+	FindingStatusResolved  FindingStatus = "RESOLVED"
+)
+
+// Valid reports whether the finding status is known.
+func (s FindingStatus) Valid() bool {
+	switch s {
+	case FindingStatusNew, FindingStatusUnchanged, FindingStatusUpdated,
+		FindingStatusReopened, FindingStatusResolved:
+		return true
+	default:
+		return false
+	}
+}
+
+// FindingConfidence is a simple confidence band (not a scoring engine).
+type FindingConfidence string
+
+const (
+	FindingConfidenceLow    FindingConfidence = "LOW"
+	FindingConfidenceMedium FindingConfidence = "MEDIUM"
+	FindingConfidenceHigh   FindingConfidence = "HIGH"
+)
+
+// Valid reports whether confidence is known.
+func (c FindingConfidence) Valid() bool {
+	switch c {
+	case FindingConfidenceLow, FindingConfidenceMedium, FindingConfidenceHigh:
+		return true
+	default:
+		return false
+	}
+}

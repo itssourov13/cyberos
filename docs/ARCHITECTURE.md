@@ -266,3 +266,11 @@ Extension boundaries: `docs/EXTENSIONS.md`.
 ## Phase 5 — Auth + Tenant Isolation
 
 See `docs/AUTH.md`. Auth middleware optional on API; principals bind from API keys.
+
+## Phase 6D — Findings pipeline
+
+```
+NormalizedResult → Finding Mapper (Ingest) → Evidence refs → Correlation queries → Events/Audit
+```
+
+Findings are **observations**, not authorization. See fingerprint dedup statuses: NEW/UNCHANGED/UPDATED/REOPENED/RESOLVED.

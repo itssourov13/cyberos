@@ -61,6 +61,8 @@ func (a *App) Run(args []string) int {
 		return a.cmdAssessments(args[1:])
 	case "tools":
 		return a.cmdTools(args[1:])
+	case "findings":
+		return a.cmdFindings(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		printHelp()
@@ -85,6 +87,7 @@ Usage:
   cyberos dashboard
   cyberos assessments list|create|plan|run|get
   cyberos tools list|health|info|packs
+  cyberos findings list|get|assessment
   cyberos serve
 
 Sensitive operations use Control Plane → Grant → Broker → Sandbox.
@@ -400,6 +403,46 @@ func (a *App) cmdTools(args []string) int {
 		return 0
 	default:
 		fmt.Println("unknown tools subcommand")
+		return 1
+	}
+}
+
+func (a *App) cmdFindings(args []string) int {
+	if a.SDK == nil || a.SDK.Findings == nil {
+		fmt.Fprintln(os.Stderr, "findings not configured")
+		return 1
+	}
+	if len(args) == 0 {
+		fmt.Println("usage: findings list|get <id>|assessment <id>")
+		return 1
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	switch args[0] {
+	case "list":
+		_ = enc.Encode(a.SDK.Findings.ListByProject(""))
+		return 0
+	case "get":
+		if len(args) < 2 {
+			fmt.Println("usage: findings get <id>")
+			return 1
+		}
+		f, err := a.SDK.Findings.Get(contracts.FindingID(args[1]))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		_ = enc.Encode(f)
+		return 0
+	case "assessment":
+		if len(args) < 2 {
+			fmt.Println("usage: findings assessment <id>")
+			return 1
+		}
+		_ = enc.Encode(a.SDK.Findings.ListByAssessment(args[1]))
+		return 0
+	default:
+		fmt.Println("unknown findings subcommand")
 		return 1
 	}
 }
