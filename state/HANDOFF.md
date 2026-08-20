@@ -1,5 +1,5 @@
 # Handoff
 
-Phase 3F complete. Tag: `v0.3.0-phase3f`.
+Phase 3G complete. Tag: `v0.3.0-phase3g`.
 
-Do not start Phase 3G without approval.
+Do not start Phase 3H without approval.

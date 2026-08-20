@@ -220,3 +220,11 @@ Tag: `v0.2.0-phase2`
 - `execution/process` fail-closed external process boundary (allowlist required)
 - `execution/runtime` Go/Python/Rust labeled adapters (no hard-coded tools)
 - Chain: Grant → Broker → Sandbox → Router/Executor
+
+## Phase 3G — Security Tool Adapter Layer
+
+- `tools.Adapter` / `Descriptor` / `NormalizedResult` / health checks
+- `tools.Manager` registers adapters and exposes `ToolExecutor`s
+- Stub scanner demonstrates pluggable assessment adapters (not a real scanner)
+- Future Nmap/Nuclei/FFUF adapters follow the same interface without core changes
+- Fail-closed on unknown tools; capability must match descriptor

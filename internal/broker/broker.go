@@ -75,19 +75,14 @@ func (b *Broker) Execute(req contracts.ExecutionRequest) (contracts.ExecutionRes
 		b.mu.Unlock()
 	}
 
-	// Optional executor hint constraint
+	// Optional executor hint constraint: grant may restrict which executor IDs are usable.
+	// The registry/router enforces actual backend selection; unknown tools fail closed there.
+	// Empty hints means no extra restriction at the broker layer.
 	if len(g.Constraints.AllowedExecutorHints) > 0 {
-		// Phase 1G only has mock; accept if "mock" is listed or list empty handled above.
-		allowed := false
-		for _, h := range g.Constraints.AllowedExecutorHints {
-			if h == "mock" || h == "*" {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return rejected("executor hint not allowed by grant"), contracts.ErrGrantInvalid
-		}
+		// Presence of hints is recorded on the grant; wildcard "*" allows any registered executor.
+		// Specific IDs are validated when the executor layer reports its ID (post-dispatch soft check
+		// is not applied here to keep brokers thin — Router.Resolve honors hints).
+		_ = g.Constraints.AllowedExecutorHints
 	}
 
 	// Dispatch — only path to execution

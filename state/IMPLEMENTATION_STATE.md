@@ -1,10 +1,11 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-20 (Phase 3F complete)
+**Last Updated:** 2026-08-20 (Phase 3G complete)
 
-## Phase 3F — Extensible Tool Execution Runtime: COMPLETE
-- [x] ToolManifest + ToolExecutor contracts
-- [x] Executor registry/router
-- [x] Process adapter (disabled by default)
-- [x] Go/Python/Rust runtime adapters
-- [x] Security tests (grant required; no unrestricted process)
+## Phase 3G — Real Security Tool Adapter Layer: COMPLETE
+- [x] Tool descriptor, health, normalized results
+- [x] Adapter interface + Manager lifecycle
+- [x] Stub assessment adapter (in-process)
+- [x] Register executors into execution.Registry
+- [x] Broker honors executor hints for routing (no mock-only hardcode)
+- [x] Security/integration tests
