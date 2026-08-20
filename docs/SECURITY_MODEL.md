@@ -228,3 +228,12 @@ Integration tests under `tests/integration` prove:
 - Rejects AllowNetwork / AllowFilesystem
 - Enforces concurrency, output size, duration
 - SDK broker path uses sandbox → mock
+
+## Phase 3D — Secrets Hooks + Secure Configuration
+
+- `secrets.Ref` (`env:NAME`, `file:path`) — references only, never plaintext in task/events/audit
+- `Resolver` / `EnvResolver` / `MapResolver` / `Chain`
+- `RedactString`, `SanitizeMap`, `AssertNoSecretInMetadata`
+- Config holds `SecretRefs`, not resolved values; `RedactedDatabaseURL()` for logs
+
+Secrets hooks do **not** authorize execution.

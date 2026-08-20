@@ -1,10 +1,10 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-20 (Phase 3C complete)
+**Last Updated:** 2026-08-20 (Phase 3D complete)
 
-## Phase 3C — Worker/Recovery + Events/Audit + SSE: COMPLETE
-- [x] Worker TickOnce/Start/Stop claim→process→release
-- [x] Lease recovery with events
-- [x] Runner lifecycle event types + store append
-- [x] events.Hub + GET /api/v1/events/stream
-- [x] Security: worker ≠ authorization; SSE read-only
+## Phase 3D — Secrets Hooks + Secure Configuration: COMPLETE
+- [x] secrets.Ref + Parse/Validate
+- [x] Resolver interfaces and env/map/chain
+- [x] Redaction helpers
+- [x] Config SecretRefs
+- [x] Security tests
