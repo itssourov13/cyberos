@@ -77,3 +77,12 @@ ProcessFunc must still use Control Plane → Grant for any execution.
 
 ### SSE
 `GET /api/v1/events/stream` — read-only fan-out via `events.Hub`.
+
+## Phase 4B — Durable events + audit
+
+- `events.Backend` with memory + `postgres.EventBackend`
+- `events.Store.WithBackend` for PostgreSQL durability
+- Migration `004_events_audit.sql` (`events`, `audit_entries`)
+- `audit.Service.WithDurable` dual-writes append-only entries
+- Queries: by ID, correlation, type, time-ordered (`seq`)
+- Storage does **not** authorize execution

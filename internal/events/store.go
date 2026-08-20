@@ -1,6 +1,5 @@
-// Package events provides an in-process, append-only event store.
+// Package events provides an append-only event store.
 // Commands and Events remain strictly separate: this package only records Events.
-// No Kafka or distributed bus in Phase 1I.
 package events
 
 import (
@@ -11,16 +10,29 @@ import (
 	"cyberos/internal/contracts"
 )
 
-// Store is an append-only, in-memory event log suitable for forensic reconstruction
-// within a process. Persistence can be added later without changing the envelope.
+// Store is an append-only event log suitable for forensic reconstruction.
+// Default backend is in-memory; use WithBackend for PostgreSQL durability.
 type Store struct {
-	mu     sync.RWMutex
-	events []contracts.EventEnvelope
+	mu      sync.Mutex
+	backend Backend
 }
 
-// NewStore constructs an empty event store.
+// NewStore constructs a store with an in-memory backend.
 func NewStore() *Store {
-	return &Store{events: make([]contracts.EventEnvelope, 0, 64)}
+	return &Store{backend: NewMemoryBackend()}
+}
+
+// WithBackend replaces the persistence backend (e.g. postgres).
+func (s *Store) WithBackend(b Backend) *Store {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if b != nil {
+		s.backend = b
+	}
+	return s
 }
 
 // AppendRequest carries fields for a new event.
@@ -34,14 +46,12 @@ type AppendRequest struct {
 	CorrelationID contracts.CorrelationID
 	CausationID   contracts.CausationID
 	Payload       map[string]any
-	// Timestamp overrides clock (tests). Zero → now.
-	Timestamp time.Time
+	Timestamp     time.Time
 }
 
 // Append validates and appends an immutable event envelope.
-// Once appended, events are never updated or deleted by this store.
 func (s *Store) Append(req AppendRequest) (contracts.EventEnvelope, error) {
-	if s == nil {
+	if s == nil || s.backend == nil {
 		return contracts.EventEnvelope{}, fmt.Errorf("%w: event store not configured", contracts.ErrInvalidArgument)
 	}
 	ts := req.Timestamp
@@ -49,29 +59,16 @@ func (s *Store) Append(req AppendRequest) (contracts.EventEnvelope, error) {
 		ts = time.Now().UTC()
 	}
 	env := contracts.EventEnvelope{
-		ID:            req.ID,
-		Type:          req.Type,
-		SchemaVersion: contracts.EventSchemaV1,
-		Timestamp:     ts,
-		Principal:     req.Principal,
-		ProjectID:     req.ProjectID,
-		ScopeID:       req.ScopeID,
-		TaskID:        req.TaskID,
-		CorrelationID: req.CorrelationID,
-		CausationID:   req.CausationID,
-		Payload:       req.Payload,
+		ID: req.ID, Type: req.Type, SchemaVersion: contracts.EventSchemaV1, Timestamp: ts,
+		Principal: req.Principal, ProjectID: req.ProjectID, ScopeID: req.ScopeID, TaskID: req.TaskID,
+		CorrelationID: req.CorrelationID, CausationID: req.CausationID, Payload: req.Payload,
 	}
 	if err := env.Validate(); err != nil {
 		return contracts.EventEnvelope{}, err
 	}
-	// Correlation recommended for security-critical events; enforce non-empty for audit chain.
 	if env.CorrelationID == "" {
 		return contracts.EventEnvelope{}, fmt.Errorf("%w: correlation_id is required", contracts.ErrInvalidArgument)
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	// Append-only: copy payload map to avoid external mutation.
 	if env.Payload != nil {
 		cp := make(map[string]any, len(env.Payload))
 		for k, v := range env.Payload {
@@ -79,48 +76,61 @@ func (s *Store) Append(req AppendRequest) (contracts.EventEnvelope, error) {
 		}
 		env.Payload = cp
 	}
-	s.events = append(s.events, env)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.backend.Append(env); err != nil {
+		return contracts.EventEnvelope{}, err
+	}
 	return env, nil
 }
 
-// All returns a snapshot of all events in append order.
+// Get returns an event by ID.
+func (s *Store) Get(id contracts.EventID) (contracts.EventEnvelope, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.backend.Get(id)
+}
+
+// All returns events in append order.
 func (s *Store) All() []contracts.EventEnvelope {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := make([]contracts.EventEnvelope, len(s.events))
-	copy(out, s.events)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out, err := s.backend.All()
+	if err != nil {
+		return nil
+	}
 	return out
 }
 
-// ByCorrelation returns events sharing a correlation ID (forensic chain).
+// ByCorrelation returns events sharing a correlation ID.
 func (s *Store) ByCorrelation(id contracts.CorrelationID) []contracts.EventEnvelope {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var out []contracts.EventEnvelope
-	for _, e := range s.events {
-		if e.CorrelationID == id {
-			out = append(out, e)
-		}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out, err := s.backend.ByCorrelation(id)
+	if err != nil {
+		return nil
 	}
 	return out
 }
 
 // ByType returns events of a given type.
 func (s *Store) ByType(t contracts.EventType) []contracts.EventEnvelope {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var out []contracts.EventEnvelope
-	for _, e := range s.events {
-		if e.Type == t {
-			out = append(out, e)
-		}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out, err := s.backend.ByType(t)
+	if err != nil {
+		return nil
 	}
 	return out
 }
 
 // Len returns the number of stored events.
 func (s *Store) Len() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.events)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n, err := s.backend.Len()
+	if err != nil {
+		return 0
+	}
+	return n
 }

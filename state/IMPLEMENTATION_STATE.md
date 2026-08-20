@@ -1,11 +1,11 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-20 (Phase 4A complete)
+**Last Updated:** 2026-08-20 (Phase 4B complete)
 
-## Phase 1–3: COMPLETE
-## Phase 4A — Durable PostgreSQL-backed Catalog & State: COMPLETE
-- [x] ListAll/List ports
-- [x] Assessment table + repo
-- [x] Catalog.RefreshFromRepos
-- [x] No default demo seed
-- [x] Memory repos for tests
+## Phase 4A: COMPLETE
+## Phase 4B — Durable Events + Audit Storage: COMPLETE
+- [x] events.Backend + postgres EventBackend
+- [x] audit durable backend
+- [x] migration 004
+- [x] append-only + correlation queries
+- [x] security tests

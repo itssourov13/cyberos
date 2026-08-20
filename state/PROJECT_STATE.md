@@ -3,7 +3,7 @@
 **Last Updated:** 2026-08-20
 
 ## Current
-**Phase 4A** completed (`v0.4.0-phase4a`)
+**Phase 4B** completed (`v0.4.0-phase4b`)
 
 ## Next
-Awaiting approval for Phase 4B+.
+Awaiting approval for Phase 4C+.

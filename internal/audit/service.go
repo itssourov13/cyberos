@@ -29,11 +29,19 @@ type Entry struct {
 	Metadata      map[string]string
 }
 
+// Durable is optional append-only persistence for audit entries.
+type Durable interface {
+	Append(e Entry) error
+	ListByCorrelation(id contracts.CorrelationID) ([]Entry, error)
+	All() ([]Entry, error)
+}
+
 // Service is an append-only audit log that also emits Events.
 type Service struct {
-	mu      sync.RWMutex
-	entries []Entry
-	events  *events.Store
+	mu       sync.RWMutex
+	entries  []Entry
+	events   *events.Store
+	durable  Durable
 }
 
 // NewService constructs an audit service.
@@ -43,6 +51,14 @@ func NewService(eventStore *events.Store) *Service {
 		entries: make([]Entry, 0, 64),
 		events:  eventStore,
 	}
+}
+
+// WithDurable attaches PostgreSQL (or other) append-only audit storage.
+func (s *Service) WithDurable(d Durable) *Service {
+	if s != nil {
+		s.durable = d
+	}
+	return s
 }
 
 // RecordDecision audits a Control Plane decision and emits an event.
@@ -268,6 +284,12 @@ func (s *Service) append(e Entry, eventType contracts.EventType, payload map[str
 	s.mu.Lock()
 	s.entries = append(s.entries, e)
 	s.mu.Unlock()
+
+	if s.durable != nil {
+		if err := s.durable.Append(e); err != nil {
+			return Entry{}, err
+		}
+	}
 
 	if s.events != nil {
 		var causation contracts.CausationID

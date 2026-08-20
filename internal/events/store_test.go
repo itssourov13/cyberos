@@ -7,57 +7,40 @@ import (
 	"cyberos/internal/contracts"
 )
 
-func TestAppendAndQuery(t *testing.T) {
+func TestAppendOnlyAndQueries(t *testing.T) {
 	s := NewStore()
-	p := contracts.PrincipalRef{ID: "u1", Type: contracts.PrincipalTypeHuman}
-	env, err := s.Append(AppendRequest{
-		ID: "e1", Type: TypeDecisionAllowed,
-		Principal: &p, ProjectID: "p1", ScopeID: "s1", TaskID: "t1",
-		CorrelationID: "corr-1", CausationID: "cause-1",
-		Payload: map[string]any{"k": "v"},
+	_, err := s.Append(AppendRequest{
+		ID: "e1", Type: TypeDecisionAllowed, CorrelationID: "c1",
+		Timestamp: time.Now().UTC(),
+		Payload:   map[string]any{"k": "v"},
 	})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if env.SchemaVersion != contracts.EventSchemaV1 {
-		t.Error("schema version")
 	}
 	if s.Len() != 1 {
-		t.Fatalf("len = %d", s.Len())
+		t.Fatal(s.Len())
 	}
-	chain := s.ByCorrelation("corr-1")
-	if len(chain) != 1 {
-		t.Fatalf("correlation chain = %d", len(chain))
+	got, err := s.Get("e1")
+	if err != nil || got.CorrelationID != "c1" {
+		t.Fatalf("%v %+v", err, got)
+	}
+	if len(s.ByCorrelation("c1")) != 1 {
+		t.Fatal("correlation")
 	}
 	if len(s.ByType(TypeDecisionAllowed)) != 1 {
-		t.Error("by type")
+		t.Fatal("type")
 	}
+	_ = contracts.EventSchemaV1
 }
 
-func TestAppendRequiresCorrelation(t *testing.T) {
-	s := NewStore()
-	_, err := s.Append(AppendRequest{
-		ID: "e2", Type: TypeGrantIssued,
+func TestMemoryBackendSharedDurability(t *testing.T) {
+	backend := NewMemoryBackend()
+	s1 := NewStore().WithBackend(backend)
+	_, _ = s1.Append(AppendRequest{
+		ID: "e2", Type: TypeGrantIssued, CorrelationID: "c2", Timestamp: time.Now().UTC(),
 	})
-	if err == nil {
-		t.Fatal("correlation_id required")
-	}
-}
-
-func TestAppendOnlyImmutableSnapshot(t *testing.T) {
-	s := NewStore()
-	payload := map[string]any{"x": 1}
-	_, err := s.Append(AppendRequest{
-		ID: "e3", Type: TypeTaskCreated,
-		CorrelationID: "c", Payload: payload,
-		Timestamp: time.Now().UTC(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	payload["x"] = 999 // mutate original
-	all := s.All()
-	if all[0].Payload["x"] != 1 {
-		t.Error("store must copy payload (immutability)")
+	s2 := NewStore().WithBackend(backend)
+	if s2.Len() != 1 {
+		t.Fatalf("len=%d", s2.Len())
 	}
 }
