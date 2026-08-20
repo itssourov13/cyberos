@@ -6,9 +6,11 @@
 package process
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,29 +19,24 @@ import (
 
 // Spec describes a controlled external process invocation.
 type Spec struct {
-	// Runtime labels the language runtime (go/python/rust) for metadata only.
-	Runtime contracts.PluginRuntime
-	// Path is the absolute or resolved binary path (must be allowlisted).
-	Path string
-	// Args are non-shell arguments (never passed through a shell).
-	Args []string
-	// Env is an explicit environment map (no implicit host secret leakage).
-	Env map[string]string
-	// WorkDir if set must also be allowlisted by the policy.
-	WorkDir string
-	// Timeout bounds process lifetime.
-	Timeout time.Duration
-	// MaxOutputBytes truncates captured stdout/stderr.
+	Runtime        contracts.PluginRuntime
+	Path           string
+	Args           []string
+	Env            map[string]string
+	WorkDir        string
+	Timeout        time.Duration
 	MaxOutputBytes int64
 }
 
 // Policy controls whether process execution is permitted at all.
 type Policy struct {
 	Enabled bool
-	// AllowedBins is a strict basename or path allowlist.
+	// AllowedBins is a strict basename or absolute path allowlist.
 	AllowedBins []string
 	// AllowedDirs restricts WorkDir when non-empty.
-	AllowedDirs    []string
+	AllowedDirs []string
+	// AllowShell permits shell binaries (default false — fail closed).
+	AllowShell     bool
 	DefaultTimeout time.Duration
 	MaxOutputBytes int64
 }
@@ -48,9 +45,19 @@ type Policy struct {
 func DefaultPolicy() Policy {
 	return Policy{
 		Enabled:        false,
+		AllowShell:     false,
 		DefaultTimeout: 10 * time.Second,
 		MaxOutputBytes: 256 * 1024,
 	}
+}
+
+// Result captures process outcomes for normalization upstream.
+type Result struct {
+	Stdout   string
+	Stderr   string
+	ExitCode int
+	Duration time.Duration
+	TimedOut bool
 }
 
 // Runner executes Spec under Policy without using a shell.
@@ -69,27 +76,45 @@ func NewRunner(p Policy) *Runner {
 	return &Runner{Policy: p}
 }
 
-// Run validates policy and optionally starts a process.
-// When policy is disabled, returns a rejected result without spawning.
+// Run validates policy and starts a process when permitted.
 func (r *Runner) Run(ctx context.Context, spec Spec) (stdout, stderr string, err error) {
+	res, err := r.RunDetailed(ctx, spec)
+	return res.Stdout, res.Stderr, err
+}
+
+// RunDetailed returns structured process results.
+func (r *Runner) RunDetailed(ctx context.Context, spec Spec) (Result, error) {
+	start := time.Now()
 	if r == nil {
-		return "", "", fmt.Errorf("%w: process runner nil", contracts.ErrInvalidArgument)
+		return Result{}, fmt.Errorf("%w: process runner nil", contracts.ErrInvalidArgument)
 	}
 	if !r.Policy.Enabled {
-		return "", "", fmt.Errorf("%w: external process execution is disabled", contracts.ErrForbidden)
+		return Result{Duration: time.Since(start)}, fmt.Errorf("%w: external process execution is disabled", contracts.ErrForbidden)
+	}
+	if err := ValidateArgv(spec.Path, spec.Args); err != nil {
+		return Result{Duration: time.Since(start)}, err
+	}
+	if IsShellBinary(spec.Path) && !r.Policy.AllowShell {
+		return Result{Duration: time.Since(start)}, fmt.Errorf("%w: shell/interpreter execution is disabled", contracts.ErrForbidden)
 	}
 	if err := r.allowBin(spec.Path); err != nil {
-		return "", "", err
+		return Result{Duration: time.Since(start)}, err
 	}
 	if spec.WorkDir != "" {
 		if err := r.allowDir(spec.WorkDir); err != nil {
-			return "", "", err
+			return Result{Duration: time.Since(start)}, err
 		}
 	}
+
 	timeout := spec.Timeout
 	if timeout <= 0 {
 		timeout = r.Policy.DefaultTimeout
 	}
+	maxOut := spec.MaxOutputBytes
+	if maxOut <= 0 {
+		maxOut = r.Policy.MaxOutputBytes
+	}
+
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -97,35 +122,46 @@ func (r *Runner) Run(ctx context.Context, spec Spec) (stdout, stderr string, err
 	if spec.WorkDir != "" {
 		cmd.Dir = spec.WorkDir
 	}
-	if len(spec.Env) > 0 {
-		env := make([]string, 0, len(spec.Env))
-		for k, v := range spec.Env {
-			env = append(env, k+"="+v)
-		}
-		cmd.Env = env // explicit only — does not inherit full host env
+	// Explicit env only — never inherit full host environment by default.
+	if env := SanitizeEnv(spec.Env); len(env) > 0 {
+		cmd.Env = env
+	} else {
+		cmd.Env = []string{} // empty env when none provided
 	}
-	out, err := cmd.Output()
-	// On error, try to include stderr from ExitError
-	var errb []byte
-	if ee, ok := err.(*exec.ExitError); ok {
-		errb = ee.Stderr
+
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+
+	runErr := cmd.Run()
+	dur := time.Since(start)
+	res := Result{
+		Stdout:   truncate(stdoutBuf.String(), maxOut),
+		Stderr:   truncate(stderrBuf.String(), maxOut),
+		Duration: dur,
+		ExitCode: 0,
 	}
-	stdout = truncate(string(out), r.Policy.MaxOutputBytes)
-	stderr = truncate(string(errb), r.Policy.MaxOutputBytes)
 	if cctx.Err() == context.DeadlineExceeded {
-		return stdout, stderr, fmt.Errorf("%w: process timeout", contracts.ErrInvalidArgument)
+		res.TimedOut = true
+		res.ExitCode = -1
+		return res, fmt.Errorf("%w: process timeout", contracts.ErrInvalidArgument)
 	}
-	return stdout, stderr, err
+	if runErr != nil {
+		if ee, ok := runErr.(*exec.ExitError); ok {
+			res.ExitCode = ee.ExitCode()
+		} else {
+			res.ExitCode = -1
+		}
+		return res, runErr
+	}
+	return res, nil
 }
 
 func (r *Runner) allowBin(path string) error {
 	if path == "" {
 		return fmt.Errorf("%w: empty process path", contracts.ErrInvalidArgument)
 	}
-	base := path
-	if i := strings.LastIndex(path, "/"); i >= 0 {
-		base = path[i+1:]
-	}
+	base := filepath.Base(path)
 	for _, a := range r.Policy.AllowedBins {
 		if a == path || a == base {
 			return nil

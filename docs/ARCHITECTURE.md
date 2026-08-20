@@ -228,3 +228,11 @@ Tag: `v0.2.0-phase2`
 - Stub scanner demonstrates pluggable assessment adapters (not a real scanner)
 - Future Nmap/Nuclei/FFUF adapters follow the same interface without core changes
 - Fail-closed on unknown tools; capability must match descriptor
+
+## Phase 3H — Process Runtime + Execution Hardening
+
+- Explicit executable allowlist; shell disabled by default
+- ValidateArgv (no compound shell strings); SanitizeEnv (no secret keys)
+- process.Result: exit code, duration, timeout, truncated output
+- tools.ProcessToolAdapter: binary from descriptor, version health probe
+- No security product hard-coded in core

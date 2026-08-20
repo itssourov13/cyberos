@@ -1,11 +1,9 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-20 (Phase 3G complete)
+**Last Updated:** 2026-08-20 (Phase 3H complete)
 
-## Phase 3G — Real Security Tool Adapter Layer: COMPLETE
-- [x] Tool descriptor, health, normalized results
-- [x] Adapter interface + Manager lifecycle
-- [x] Stub assessment adapter (in-process)
-- [x] Register executors into execution.Registry
-- [x] Broker honors executor hints for routing (no mock-only hardcode)
-- [x] Security/integration tests
+## Phase 3H — Real Tool Process Runtime + Execution Hardening: COMPLETE
+- [x] Hardened process runner (allowlist, no shell, argv validation, env sanitize)
+- [x] Structured process.Result
+- [x] ProcessToolAdapter + health/version probe
+- [x] Security tests

@@ -3,7 +3,7 @@
 **Last Updated:** 2026-08-20
 
 ## Current
-**Phase 3G** completed (`v0.3.0-phase3g`)
+**Phase 3H** completed (`v0.3.0-phase3h`)
 
 ## Next
-Awaiting approval for Phase 3H / Phase 3 completion.
+Awaiting approval for Phase 3I+.
