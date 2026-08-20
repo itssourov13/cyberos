@@ -10,6 +10,7 @@ import (
 
 	appscope "cyberos/internal/application/scope"
 	"cyberos/internal/assessment"
+	"cyberos/internal/auth"
 	"cyberos/internal/audit"
 	"cyberos/internal/broker"
 	"cyberos/internal/capability"
@@ -48,6 +49,7 @@ type Client struct {
 	Events     *events.Store
 	Hub        *events.Hub
 	ExecReg    *execution.Registry
+	Auth       auth.Authenticator
 }
 
 // NewInMemory constructs a client with mock broker, issuer, evidence stack,

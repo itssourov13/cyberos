@@ -30,6 +30,7 @@ func (s Status) Valid() bool {
 // Project is the top-level container for assets, scopes, and tasks.
 type Project struct {
 	ID          contracts.ProjectID
+	TenantID    contracts.TenantID // multi-tenant ownership (Phase 5)
 	Name        string
 	Description string
 	Status      Status

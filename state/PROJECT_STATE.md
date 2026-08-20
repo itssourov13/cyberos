@@ -3,7 +3,7 @@
 **Last Updated:** 2026-08-20
 
 ## Current
-**Phase 4C** completed (`v0.4.0-phase4c`)
+**Phase 5** completed (`v0.5.0-phase5`)
 
 ## Next
-Awaiting approval for Phase 5+.
+Awaiting approval for Phase 6+.

@@ -262,3 +262,7 @@ Extension boundaries: `docs/EXTENSIONS.md`.
 - `TryClaimAtomically` + `ClearExpiredLeases` on runner Store
 - PostgreSQL: `FOR UPDATE SKIP LOCKED` on PENDING tasks
 - Claim never sets AUTHORIZED/RUNNING or issues grants
+
+## Phase 5 — Auth + Tenant Isolation
+
+See `docs/AUTH.md`. Auth middleware optional on API; principals bind from API keys.

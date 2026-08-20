@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"cyberos/internal/auth"
 	"cyberos/internal/contracts"
 	"cyberos/internal/controlplane"
 	"cyberos/internal/events"
@@ -17,8 +18,9 @@ import (
 
 // Server is the API v1 HTTP handler root.
 type Server struct {
-	SDK *sdk.Client
-	hub *events.Hub
+	SDK  *sdk.Client
+	hub  *events.Hub
+	Auth *auth.Middleware // optional; when set, protects API routes
 }
 
 // NewServer constructs an API server.
@@ -48,7 +50,11 @@ func (s *Server) Handler() http.Handler {
 	// Web UI foundation (static)
 	mux.Handle("/ui/", http.StripPrefix("/ui/", uiFileServer()))
 	mux.HandleFunc("/", s.handleRoot)
-	return mux
+	var h http.Handler = mux
+	if s.Auth != nil {
+		h = s.Auth.Wrap(mux)
+	}
+	return h
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
