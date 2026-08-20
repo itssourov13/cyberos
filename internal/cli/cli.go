@@ -65,6 +65,8 @@ func (a *App) Run(args []string) int {
 		return a.cmdFindings(args[1:])
 	case "assets":
 		return a.cmdAssets(args[1:])
+	case "risks":
+		return a.cmdRisks(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		printHelp()
@@ -91,6 +93,7 @@ Usage:
   cyberos tools list|health|info|packs
   cyberos findings list|get|assessment
   cyberos assets list|get
+  cyberos risks list|get|finding|asset|assessment|summary
   cyberos serve
 
 Sensitive operations use Control Plane → Grant → Broker → Sandbox.
@@ -485,6 +488,66 @@ func (a *App) cmdAssets(args []string) int {
 		return 0
 	default:
 		fmt.Println("unknown assets subcommand")
+		return 1
+	}
+}
+
+func (a *App) cmdRisks(args []string) int {
+	if a.SDK == nil || a.SDK.RiskPrio == nil {
+		fmt.Fprintln(os.Stderr, "risk prioritization not configured")
+		return 1
+	}
+	if len(args) == 0 {
+		fmt.Println("usage: risks list|get|finding|asset|assessment|summary")
+		return 1
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	switch args[0] {
+	case "list":
+		_ = enc.Encode(a.SDK.RiskPrio.ListByProject(""))
+		return 0
+	case "get":
+		if len(args) < 2 {
+			return 1
+		}
+		ev, err := a.SDK.RiskPrio.Get(args[1])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		_ = enc.Encode(ev)
+		return 0
+	case "finding":
+		if len(args) < 2 {
+			return 1
+		}
+		ev, err := a.SDK.RiskPrio.GetByFinding(contracts.FindingID(args[1]))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		_ = enc.Encode(ev)
+		return 0
+	case "asset":
+		if len(args) < 2 {
+			return 1
+		}
+		_ = enc.Encode(a.SDK.RiskPrio.ListByAsset(contracts.AssetID(args[1])))
+		return 0
+	case "assessment":
+		if len(args) < 2 {
+			return 1
+		}
+		_ = enc.Encode(a.SDK.RiskPrio.ListByAssessment(args[1]))
+		return 0
+	case "summary":
+		if len(args) < 2 {
+			return 1
+		}
+		_ = enc.Encode(a.SDK.RiskPrio.SummarizeAssessment(args[1]))
+		return 0
+	default:
 		return 1
 	}
 }

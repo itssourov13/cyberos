@@ -26,6 +26,7 @@ import (
 	"cyberos/internal/findings"
 	"cyberos/internal/identity"
 	"cyberos/internal/provenance"
+	"cyberos/internal/riskprio"
 	"cyberos/internal/taskengine"
 	"cyberos/internal/tools"
 )
@@ -53,6 +54,7 @@ type Client struct {
 	Auth       auth.Authenticator
 	Platform   *tools.Platform
 	Assets     *assets.Inventory
+	RiskPrio   *riskprio.Engine
 }
 
 // NewInMemory constructs a client with mock broker, issuer, evidence stack,
@@ -85,6 +87,7 @@ func NewInMemory() *Client {
 		Tools:      toolMgr,
 		Platform:   tools.NewPlatform(toolMgr),
 		Assets:     assets.NewInventory(),
+		RiskPrio:   riskprio.NewEngine(),
 		ExecReg:    execReg,
 	}
 	// Phase 4A: no demo seed — catalog starts empty until RefreshFromRepos or explicit upserts.

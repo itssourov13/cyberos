@@ -282,3 +282,7 @@ Target → Asset → ServiceEndpoint → Observation → (Findings via existing 
 ```
 
 Inventory is observation-only; never authorizes execution.
+
+## Phase 6F — Risk prioritization
+
+See `docs/RISK.md`. Downstream of findings/assets; never linked to Broker/Executor.
