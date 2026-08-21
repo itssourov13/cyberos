@@ -145,6 +145,9 @@ func (c *Client) WireAssessment() *Client {
 	if c.Evidence != nil {
 		orch = orch.WithEvidence(c.Evidence, c.Findings, c.Provenance, c.Events)
 	}
+	orch = orch.WithPhase6(&assessment.Phase6Sink{
+		Assets: c.Assets, Findings: c.Findings, Risk: c.RiskPrio, Cases: c.Cases,
+	})
 	c.Assessment = orch
 	return c
 }

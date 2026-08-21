@@ -1,6 +1,6 @@
 # CYBEROS Architecture Audit Report
 
-**Basis:** live repository at tag `v0.3.0-phase3i` (audit performed read-only)  
+**Basis:** historical audit at `v0.3.0-phase3i`; **current freeze is `v0.6.0` (Phase 6H)** — see docs/PHASE6_FREEZE.md  
 **Date of audit:** 2026-08-20  
 **Status:** Project document — guidance for Phase 3J+ planning. Not an implementation approval.
 

@@ -290,3 +290,7 @@ See `docs/RISK.md`. Downstream of findings/assets; never linked to Broker/Execut
 ## Phase 6G — Cases & Reports
 
 See `docs/CASES.md`. Downstream of findings/risk; never linked to Broker/Executor.
+
+## Phase 6H — Freeze
+
+See `docs/PHASE6_FREEZE.md`. Assessment post-exec pipeline wires assets/findings/risk/cases without touching Broker.

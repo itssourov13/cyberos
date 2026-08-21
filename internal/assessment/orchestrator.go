@@ -32,6 +32,7 @@ type Orchestrator struct {
 	findings *findings.Service
 	prov     *provenance.Service
 	events   *events.Store
+	phase6   *Phase6Sink
 
 	mu    sync.RWMutex
 	items map[contracts.AssessmentID]*Assessment
@@ -52,6 +53,12 @@ func (o *Orchestrator) WithEvidence(e *evidence.Service, f *findings.Service, p 
 	o.findings = f
 	o.prov = p
 	o.events = ev
+	return o
+}
+
+// WithPhase6 wires the Phase 6 product pipeline (assets/findings/risk/cases). Never authorizes.
+func (o *Orchestrator) WithPhase6(sink *Phase6Sink) *Orchestrator {
+	o.phase6 = sink
 	return o
 }
 
@@ -201,6 +208,9 @@ func (o *Orchestrator) runStep(ctx context.Context, a *Assessment, step contract
 				})
 			}
 		}
+	}
+	if o.phase6 != nil && sr.Success {
+		o.phase6.AfterSuccessfulStep(ctx, a, step, grant, res)
 	}
 	o.emit(a, "assessment.step.completed", map[string]any{
 		"step_id": step.ID, "success": sr.Success, "grant_id": string(grant.ID),
