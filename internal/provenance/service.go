@@ -3,6 +3,7 @@
 package provenance
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -10,17 +11,34 @@ import (
 	domainevidence "cyberos/internal/domain/evidence"
 	domainfinding "cyberos/internal/domain/finding"
 	domainprov "cyberos/internal/domain/provenance"
+	"cyberos/internal/storage/ports"
 )
 
 // Service stores provenance records.
 type Service struct {
 	mu    sync.RWMutex
 	items map[string]*domainprov.Provenance // key: subjectType:subjectID
+	repo  ports.ProvenanceRepository
 }
 
 // NewService constructs a provenance service.
 func NewService() *Service {
 	return &Service{items: make(map[string]*domainprov.Provenance)}
+}
+
+// WithRepository attaches optional durable persistence. When set, persist errors propagate.
+func (s *Service) WithRepository(repo ports.ProvenanceRepository) *Service {
+	if s != nil {
+		s.repo = repo
+	}
+	return s
+}
+
+func (s *Service) persist(p *domainprov.Provenance) error {
+	if s == nil || s.repo == nil || p == nil {
+		return nil
+	}
+	return s.repo.Upsert(context.Background(), p)
 }
 
 func key(subjectType, subjectID string) string {
@@ -69,6 +87,10 @@ func (s *Service) RecordForEvidence(
 	}
 	cp := *p
 	s.items[k] = &cp
+	if err := s.persist(&cp); err != nil {
+		delete(s.items, k)
+		return nil, err
+	}
 	return &cp, nil
 }
 
@@ -115,6 +137,10 @@ func (s *Service) RecordForFinding(
 	}
 	cp := *dp
 	s.items[k] = &cp
+	if err := s.persist(&cp); err != nil {
+		delete(s.items, k)
+		return nil, err
+	}
 	return &cp, nil
 }
 
@@ -124,13 +150,17 @@ func (s *Service) Get(subjectType, subjectID string) (*domainprov.Provenance, er
 		return nil, fmt.Errorf("%w: provenance service not configured", contracts.ErrInvalidArgument)
 	}
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	p, ok := s.items[key(subjectType, subjectID)]
-	if !ok {
-		return nil, contracts.ErrNotFound
+	if ok {
+		cp := *p
+		s.mu.RUnlock()
+		return &cp, nil
 	}
-	cp := *p
-	return &cp, nil
+	s.mu.RUnlock()
+	if s.repo != nil {
+		return s.repo.Get(context.Background(), subjectType, subjectID)
+	}
+	return nil, contracts.ErrNotFound
 }
 
 // ensureComplete checks WHO/WHAT/WHEN/WHERE (scope/task) / capability / grant.

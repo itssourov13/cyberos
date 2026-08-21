@@ -3,12 +3,14 @@
 package evidence
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
 
 	"cyberos/internal/contracts"
 	domainevidence "cyberos/internal/domain/evidence"
+	"cyberos/internal/storage/ports"
 )
 
 // Service records and retrieves Evidence.
@@ -16,11 +18,27 @@ import (
 type Service struct {
 	mu    sync.RWMutex
 	items map[contracts.EvidenceID]*domainevidence.Evidence
+	repo  ports.EvidenceRepository // optional durable backend (Phase 8A)
 }
 
 // NewService constructs an evidence service.
 func NewService() *Service {
 	return &Service{items: make(map[contracts.EvidenceID]*domainevidence.Evidence)}
+}
+
+// WithRepository attaches optional durable persistence. When set, persist errors propagate.
+func (s *Service) WithRepository(repo ports.EvidenceRepository) *Service {
+	if s != nil {
+		s.repo = repo
+	}
+	return s
+}
+
+func (s *Service) persist(e *domainevidence.Evidence) error {
+	if s == nil || s.repo == nil || e == nil {
+		return nil
+	}
+	return s.repo.Upsert(context.Background(), e)
 }
 
 // RecordFromExecution creates Evidence from an execution result and grant context.
@@ -81,6 +99,10 @@ func (s *Service) RecordFromExecution(
 	}
 	cp := *ev
 	s.items[ev.ID] = &cp
+	if err := s.persist(&cp); err != nil {
+		delete(s.items, ev.ID)
+		return nil, err
+	}
 	return &cp, nil
 }
 
@@ -90,13 +112,17 @@ func (s *Service) Get(id contracts.EvidenceID) (*domainevidence.Evidence, error)
 		return nil, fmt.Errorf("%w: evidence service not configured", contracts.ErrInvalidArgument)
 	}
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	ev, ok := s.items[id]
-	if !ok {
-		return nil, contracts.ErrNotFound
+	if ok {
+		cp := *ev
+		s.mu.RUnlock()
+		return &cp, nil
 	}
-	cp := *ev
-	return &cp, nil
+	s.mu.RUnlock()
+	if s.repo != nil {
+		return s.repo.GetByID(context.Background(), id)
+	}
+	return nil, contracts.ErrNotFound
 }
 
 // ListByTask returns evidence for a task.

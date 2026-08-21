@@ -10,9 +10,11 @@ import (
 	"cyberos/internal/contracts"
 	"cyberos/internal/domain/asset"
 	"cyberos/internal/domain/capability"
+	"cyberos/internal/domain/evidence"
 	"cyberos/internal/domain/finding"
 	"cyberos/internal/domain/principal"
 	"cyberos/internal/domain/project"
+	"cyberos/internal/domain/provenance"
 	"cyberos/internal/domain/scope"
 	"cyberos/internal/domain/task"
 )
@@ -102,6 +104,8 @@ type Repositories struct {
 	RiskEvals    RiskEvaluationRepository
 	Cases        CaseRepository
 	Reports      ReportRepository
+	Evidence     EvidenceRepository
+	Provenance   ProvenanceRepository
 }
 
 // FindingRepository persists security findings (Phase 7A). Persistence only — not authorization.
@@ -187,4 +191,19 @@ type ReportRepository interface {
 	GetByID(ctx context.Context, id string) (ReportRecord, error)
 	List(ctx context.Context, limit, offset int) ([]ReportRecord, error)
 	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]ReportRecord, error)
+}
+
+// EvidenceRepository persists execution evidence (Phase 8A). Persistence only — not authorization.
+type EvidenceRepository interface {
+	Upsert(ctx context.Context, e *evidence.Evidence) error
+	GetByID(ctx context.Context, id contracts.EvidenceID) (*evidence.Evidence, error)
+	ListByTask(ctx context.Context, taskID contracts.TaskID, limit, offset int) ([]*evidence.Evidence, error)
+	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]*evidence.Evidence, error)
+}
+
+// ProvenanceRepository persists provenance lineage records (Phase 8A).
+type ProvenanceRepository interface {
+	Upsert(ctx context.Context, p *provenance.Provenance) error
+	Get(ctx context.Context, subjectType, subjectID string) (*provenance.Provenance, error)
+	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]*provenance.Provenance, error)
 }
