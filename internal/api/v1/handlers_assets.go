@@ -15,8 +15,15 @@ func (s *Server) handleAssets(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"assets": []any{}})
 		return
 	}
-	project := r.URL.Query().Get("project_id")
-	writeJSON(w, http.StatusOK, map[string]any{"assets": s.SDK.Assets.ListByProject(contracts.ProjectID(project))})
+	project, ok := requireProjectScope(w, r)
+	if !ok {
+		return
+	}
+	if project == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"assets": []any{}})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"assets": s.SDK.Assets.ListByProject(project)})
 }
 
 func (s *Server) handleAssetByID(w http.ResponseWriter, r *http.Request) {
@@ -32,6 +39,9 @@ func (s *Server) handleAssetByID(w http.ResponseWriter, r *http.Request) {
 	a, err := s.SDK.Assets.Get(contracts.AssetID(id))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if !enforceResource(w, r, "", a.ProjectID) {
 		return
 	}
 	writeJSON(w, http.StatusOK, a)

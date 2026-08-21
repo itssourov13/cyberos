@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"cyberos/internal/contracts"
+	domainfinding "cyberos/internal/domain/finding"
 )
 
 func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
@@ -15,17 +16,38 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"findings": []any{}})
 		return
 	}
-	project := r.URL.Query().Get("project_id")
 	assessment := r.URL.Query().Get("assessment_id")
 	if assessment != "" {
-		writeJSON(w, http.StatusOK, map[string]any{"findings": s.SDK.Findings.ListByAssessment(assessment)})
+		list := s.SDK.Findings.ListByAssessment(assessment)
+		proj, ok := requireProjectScope(w, r)
+		if callerTenant(r) != "" && !ok {
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"findings": filterFindingsByProject(list, proj)})
 		return
 	}
-	if project != "" {
-		writeJSON(w, http.StatusOK, map[string]any{"findings": s.SDK.Findings.ListByProject(contracts.ProjectID(project))})
+	project, ok := requireProjectScope(w, r)
+	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"findings": s.SDK.Findings.ListByProject("")})
+	if project == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"findings": []any{}})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"findings": s.SDK.Findings.ListByProject(project)})
+}
+
+func filterFindingsByProject(list []*domainfinding.Finding, proj contracts.ProjectID) []*domainfinding.Finding {
+	if proj == "" {
+		return list
+	}
+	out := make([]*domainfinding.Finding, 0, len(list))
+	for _, f := range list {
+		if f.ProjectID == proj {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 func (s *Server) handleFindingByID(w http.ResponseWriter, r *http.Request) {
@@ -43,6 +65,9 @@ func (s *Server) handleFindingByID(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
+	if !enforceResource(w, r, "", f.ProjectID) {
+		return
+	}
 	writeJSON(w, http.StatusOK, f)
 }
 
@@ -56,5 +81,14 @@ func (s *Server) handleAssessmentFindings(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusOK, map[string]any{"findings": []any{}})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"findings": s.SDK.Findings.ListByAssessment(id)})
+	list := s.SDK.Findings.ListByAssessment(id)
+	if proj := requestedProject(r); proj != "" {
+		writeJSON(w, http.StatusOK, map[string]any{"findings": filterFindingsByProject(list, proj)})
+		return
+	}
+	if callerTenant(r) != "" {
+		writeErr(w, http.StatusForbidden, "project_id required for tenant-scoped list")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"findings": list})
 }

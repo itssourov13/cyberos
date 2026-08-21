@@ -15,8 +15,26 @@ func (s *Server) handleCases(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		project := r.URL.Query().Get("project_id")
-		writeJSON(w, http.StatusOK, map[string]any{"cases": s.SDK.Cases.ListByProject(contracts.ProjectID(project))})
+		project, ok := requireProjectScope(w, r)
+		if !ok {
+			return
+		}
+		var list []*cases.Case
+		if project != "" {
+			list = s.SDK.Cases.ListByProject(project)
+		}
+		// Filter by caller tenant when resource carries TenantID
+		ct := callerTenant(r)
+		if ct != "" {
+			filtered := list[:0]
+			for _, c := range list {
+				if c.TenantID == "" || c.TenantID == ct {
+					filtered = append(filtered, c)
+				}
+			}
+			list = filtered
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"cases": list})
 	case http.MethodPost:
 		var req cases.CreateRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -49,6 +67,9 @@ func (s *Server) handleCaseByID(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
+	if !enforceResource(w, r, c.TenantID, c.ProjectID) {
+		return
+	}
 	writeJSON(w, http.StatusOK, c)
 }
 
@@ -79,7 +100,24 @@ func (s *Server) handleReports(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet {
-		writeJSON(w, http.StatusOK, map[string]any{"reports": s.SDK.Reports.List()})
+		list := s.SDK.Reports.List()
+		ct := callerTenant(r)
+		proj := requestedProject(r)
+		if ct != "" && proj == "" {
+			writeErr(w, http.StatusForbidden, "project_id required for tenant-scoped list")
+			return
+		}
+		out := list[:0]
+		for _, rep := range list {
+			if proj != "" && rep.ProjectID != proj {
+				continue
+			}
+			if ct != "" && rep.TenantID != "" && rep.TenantID != ct {
+				continue
+			}
+			out = append(out, rep)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"reports": out})
 		return
 	}
 	writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -100,6 +138,9 @@ func (s *Server) handleReportByID(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
+	if !enforceResource(w, r, rep.TenantID, rep.ProjectID) {
+		return
+	}
 	writeJSON(w, http.StatusOK, rep)
 }
 
@@ -111,6 +152,14 @@ func (s *Server) handleReportExport(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.SDK == nil || s.SDK.Reports == nil {
 		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	rep, err := s.SDK.Reports.Get(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if !enforceResource(w, r, rep.TenantID, rep.ProjectID) {
 		return
 	}
 	b, err := s.SDK.Reports.Export(id, format)
