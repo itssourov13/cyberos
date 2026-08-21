@@ -84,3 +84,6 @@ go test -tags=integration ./internal/storage/postgres/ -run StrictDSN
 ```
 
 Never claim PG durability verified when tests were skipped.
+
+
+**Phase 8 frozen at tag `v0.8.0`.** See `docs/PHASE8.md`.

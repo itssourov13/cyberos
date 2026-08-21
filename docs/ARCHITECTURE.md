@@ -299,3 +299,8 @@ See `docs/PHASE6_FREEZE.md`. Assessment post-exec pipeline wires assets/findings
 ## Phase 7 (frozen at v0.7.0)
 
 Durable platform: PostgreSQL ports for findings/risk/cases/reports/API keys; `sdk.NewProduction`; mandatory auth in production serve. See `docs/PHASE7.md`.
+
+
+## Phase 8 (frozen at v0.8.0)
+
+Operational hardening: durable evidence/provenance/inventory endpoints; API tenant/project isolation; bootstrap hygiene. See `docs/PHASE8.md`.
