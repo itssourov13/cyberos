@@ -69,11 +69,11 @@ func (e *Engine) WithRepository(repo ports.RiskEvaluationRepository) *Engine {
 	return e
 }
 
-func (e *Engine) persist(ev *Evaluation) {
+func (e *Engine) persist(ev *Evaluation) error {
 	if e == nil || e.repo == nil || ev == nil {
-		return
+		return nil
 	}
-	_ = e.repo.Upsert(context.Background(), ports.RiskEvaluationRecord{
+	return e.repo.Upsert(context.Background(), ports.RiskEvaluationRecord{
 		ID: ev.ID, ProjectID: ev.ProjectID, AssessmentID: ev.AssessmentID,
 		FindingID: ev.FindingID, AssetID: ev.AssetID, Severity: ev.Severity,
 		Confidence: ev.Confidence, AssetCriticality: ev.AssetCriticality, Exposure: ev.Exposure,
@@ -153,7 +153,9 @@ func (e *Engine) Evaluate(in Input) (*Evaluation, error) {
 	e.items[string(in.FindingID)] = ev
 	e.all[ev.ID] = ev
 	e.mu.Unlock()
-	e.persist(ev)
+	if err := e.persist(ev); err != nil {
+		return nil, err
+	}
 	cp := *ev
 	return &cp, nil
 }

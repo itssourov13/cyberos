@@ -56,3 +56,31 @@ Authentication never issues execution grants. Authorization remains Control Plan
 
 
 **Phase 7 frozen at tag `v0.7.0`.** See `docs/PHASE7.md` for limitations (including PG environment dependency).
+
+## Phase 8D — Bootstrap, durable writes, PG verification
+
+### Bootstrap API keys (production)
+
+1. **Preferred:** set `CYBEROS_BOOTSTRAP_API_KEY` to an existing `cos_…` key (secret is **not** printed on startup).
+2. If active keys already exist in the store, production **does not** issue a new bootstrap key.
+3. Only when the key store is empty and no env key is set does serve create one bootstrap key and print it **once**.
+4. Bootstrap/auth failure → process **exit 1** (fail-closed).
+
+### Durable persistence
+
+With `sdk.NewProduction`, findings/risk/evidence/provenance/cases/reports/assets inventory use repositories. Persist errors **propagate** (no silent `_ = Upsert` on findings/risk).
+
+`NewInMemory()` remains memory-only for tests/dev.
+
+### PostgreSQL integration tests
+
+```bash
+# No DSN: tests may SKIP (do not treat as durability verified)
+go test -tags=integration ./...
+
+# DSN set but DB down: strict tests FAIL
+export CYBEROS_DATABASE_URL='postgres://…'
+go test -tags=integration ./internal/storage/postgres/ -run StrictDSN
+```
+
+Never claim PG durability verified when tests were skipped.

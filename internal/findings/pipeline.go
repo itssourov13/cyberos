@@ -86,7 +86,9 @@ func (s *Service) Ingest(req IngestRequest) ([]IngestResult, error) {
 				existing.EvidenceIDs = appendUnique(existing.EvidenceIDs, req.EvidenceIDs...)
 			}
 			out = append(out, IngestResult{Finding: existing, Action: action})
-			s.persist(existing)
+			if err := s.persist(existing); err != nil {
+				return out, err
+			}
 			continue
 		}
 		id := contracts.FindingID(fmt.Sprintf("f-%s-%d", fp[:8], i))
@@ -113,7 +115,9 @@ func (s *Service) Ingest(req IngestRequest) ([]IngestResult, error) {
 		}
 		s.byFingerprint[fp] = f
 		s.mu.Unlock()
-		s.persist(f)
+		if err := s.persist(f); err != nil {
+			return out, err
+		}
 		out = append(out, IngestResult{Finding: f, Action: contracts.FindingStatusNew})
 	}
 	return out, nil
@@ -129,7 +133,9 @@ func (s *Service) Resolve(id contracts.FindingID) (*domainfinding.Finding, error
 	}
 	f.Status = contracts.FindingStatusResolved
 	f.LastSeen = time.Now().UTC()
-	s.persist(f)
+	if err := s.persist(f); err != nil {
+		return nil, err
+	}
 	return f, nil
 }
 

@@ -43,6 +43,12 @@ func (s *APIKeyStore) Create(ctx context.Context, key auth.APIKey) error {
 	return nil
 }
 
+func (s *APIKeyStore) CountActive(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM api_keys WHERE active=TRUE`).Scan(&n)
+	return n, err
+}
+
 func (s *APIKeyStore) Revoke(ctx context.Context, id string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE api_keys SET active=FALSE WHERE id=$1`, id)
 	if err != nil {

@@ -40,11 +40,11 @@ func (s *Service) WithRepository(repo ports.FindingRepository) *Service {
 	return s
 }
 
-func (s *Service) persist(f *domainfinding.Finding) {
+func (s *Service) persist(f *domainfinding.Finding) error {
 	if s == nil || s.repo == nil || f == nil {
-		return
+		return nil
 	}
-	_ = s.repo.Upsert(context.Background(), f)
+	return s.repo.Upsert(context.Background(), f)
 }
 
 // CreateRequest carries data for a new finding.
@@ -104,7 +104,13 @@ func (s *Service) Create(req CreateRequest) (*domainfinding.Finding, error) {
 	if cp.Fingerprint != "" {
 		s.byFingerprint[cp.Fingerprint] = &cp
 	}
-	s.persist(&cp)
+	if err := s.persist(&cp); err != nil {
+		delete(s.items, cp.ID)
+		if cp.Fingerprint != "" {
+			delete(s.byFingerprint, cp.Fingerprint)
+		}
+		return nil, err
+	}
 	return &cp, nil
 }
 

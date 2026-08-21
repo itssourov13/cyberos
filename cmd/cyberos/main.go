@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"time"
 
 	apiv1 "cyberos/internal/api/v1"
 	"cyberos/internal/auth"
@@ -60,27 +59,26 @@ func runServe(cfg *config.Config) {
 
 	srv := apiv1.NewServer(client)
 	if cfg.AuthRequired || cfg.Env == "production" {
-		var authenticator auth.Authenticator
+		var authenticator *auth.APIKeyAuthenticator
 		if prod != nil && prod.Auth != nil {
 			authenticator = prod.Auth
-			plain, _, ierr := prod.Auth.Issue(ctx, "bootstrap", "", 24*time.Hour)
-			if ierr != nil {
-				fmt.Fprintf(os.Stderr, "auth bootstrap failed (fail-closed): %v\n", ierr)
-				os.Exit(1)
-			}
-			fmt.Fprintf(os.Stderr, "CYBEROS bootstrap API key issued (store securely)\n")
-			fmt.Fprintf(os.Stderr, "bootstrap_key=%s\n", plain)
 		} else {
 			store := auth.NewMemoryKeyStore()
-			a := auth.NewAPIKeyAuthenticator(store)
-			plain, _, ierr := a.Issue(ctx, "bootstrap", "", 0)
-			if ierr != nil {
-				fmt.Fprintf(os.Stderr, "auth bootstrap failed: %v\n", ierr)
-				os.Exit(1)
-			}
+			authenticator = auth.NewAPIKeyAuthenticator(store)
+			client.Auth = authenticator
+		}
+		plain, created, berr := authenticator.EnsureBootstrap(ctx, cfg.BootstrapKey, "")
+		if berr != nil {
+			fmt.Fprintf(os.Stderr, "auth bootstrap failed (fail-closed): %v\n", berr)
+			os.Exit(1)
+		}
+		if created {
+			fmt.Fprintf(os.Stderr, "CYBEROS bootstrap API key created (store securely; will not re-issue on restart if keys remain active)\n")
 			fmt.Fprintf(os.Stderr, "bootstrap_key=%s\n", plain)
-			authenticator = a
-			client.Auth = a
+		} else if cfg.BootstrapKey != "" {
+			fmt.Fprintf(os.Stderr, "CYBEROS auth: using CYBEROS_BOOTSTRAP_API_KEY / existing store (secret not printed)\n")
+		} else {
+			fmt.Fprintf(os.Stderr, "CYBEROS auth: existing active API key(s) present (not re-issuing)\n")
 		}
 		srv.Auth = auth.NewMiddleware(authenticator)
 		fmt.Fprintf(os.Stderr, "CYBEROS API auth: REQUIRED\n")

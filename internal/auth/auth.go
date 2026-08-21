@@ -55,6 +55,8 @@ type KeyStore interface {
 	LookupByPrefix(ctx context.Context, prefix string) (APIKey, error)
 	Create(ctx context.Context, key APIKey) error
 	Revoke(ctx context.Context, id string) error
+	// CountActive returns the number of active (non-revoked) keys.
+	CountActive(ctx context.Context) (int, error)
 }
 
 // MemoryKeyStore is an in-process API key store.
@@ -88,6 +90,18 @@ func (s *MemoryKeyStore) Create(_ context.Context, key APIKey) error {
 	s.byID[key.ID] = key
 	s.byPx[key.Prefix] = key.ID
 	return nil
+}
+
+func (s *MemoryKeyStore) CountActive(_ context.Context) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	n := 0
+	for _, k := range s.byID {
+		if k.Active {
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (s *MemoryKeyStore) Revoke(_ context.Context, id string) error {
@@ -171,6 +185,50 @@ func (a *APIKeyAuthenticator) Authenticate(ctx context.Context, credential strin
 		TenantID:  key.TenantID,
 		APIKeyID:  key.ID,
 	}, nil
+}
+
+// EnsureBootstrap installs an env-provided key or reuses existing active keys.
+// Returns plaintext only when a new key is created; empty string means "already configured".
+func (a *APIKeyAuthenticator) EnsureBootstrap(ctx context.Context, bootstrapPlain string, tenantID contracts.TenantID) (plaintext string, created bool, err error) {
+	if a == nil || a.Store == nil {
+		return "", false, fmt.Errorf("%w: authenticator not configured", contracts.ErrInvalidArgument)
+	}
+	if bootstrapPlain != "" {
+		bootstrapPlain = strings.TrimSpace(bootstrapPlain)
+		// If already valid, do not re-issue.
+		if _, aerr := a.Authenticate(ctx, bootstrapPlain); aerr == nil {
+			return "", false, nil
+		}
+		if !strings.HasPrefix(bootstrapPlain, "cos_") || len(bootstrapPlain) < 12 {
+			return "", false, fmt.Errorf("%w: CYBEROS_BOOTSTRAP_API_KEY must be a cos_… API key", contracts.ErrInvalidArgument)
+		}
+		prefix := bootstrapPlain[:12]
+		sum := sha256.Sum256([]byte(bootstrapPlain))
+		key := APIKey{
+			ID: "key-bootstrap-env", Prefix: prefix, Hash: hex.EncodeToString(sum[:]),
+			PrincipalID: "bootstrap", TenantID: tenantID, Active: true, CreatedAt: a.Now(),
+		}
+		if err := a.Store.Create(ctx, key); err != nil {
+			// Conflict: try authenticate again after concurrent create
+			if _, aerr := a.Authenticate(ctx, bootstrapPlain); aerr == nil {
+				return "", false, nil
+			}
+			return "", false, err
+		}
+		return "", false, nil // env key installed; do not print
+	}
+	n, err := a.Store.CountActive(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	if n > 0 {
+		return "", false, nil
+	}
+	plain, _, err := a.Issue(ctx, "bootstrap", tenantID, 0)
+	if err != nil {
+		return "", false, err
+	}
+	return plain, true, nil
 }
 
 func randomHex(n int) (string, error) {
