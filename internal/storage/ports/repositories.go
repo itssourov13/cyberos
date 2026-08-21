@@ -100,6 +100,8 @@ type Repositories struct {
 	Assessments  AssessmentRepository
 	Findings     FindingRepository
 	RiskEvals    RiskEvaluationRepository
+	Cases        CaseRepository
+	Reports      ReportRepository
 }
 
 // FindingRepository persists security findings (Phase 7A). Persistence only — not authorization.
@@ -136,4 +138,53 @@ type RiskEvaluationRepository interface {
 	GetByFinding(ctx context.Context, findingID contracts.FindingID) (RiskEvaluationRecord, error)
 	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]RiskEvaluationRecord, error)
 	ListByAssessment(ctx context.Context, assessmentID string, limit, offset int) ([]RiskEvaluationRecord, error)
+}
+
+// CaseRecord is a persistence DTO for security cases (Phase 7B).
+type CaseRecord struct {
+	ID           string
+	TenantID     contracts.TenantID
+	ProjectID    contracts.ProjectID
+	AssessmentID string
+	Title        string
+	Description  string
+	Status       contracts.CaseStatus
+	Priority     contracts.RiskPriority
+	FindingIDs   []contracts.FindingID
+	AssetIDs     []contracts.AssetID
+	CreatedBy    contracts.PrincipalID
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	ResolvedAt   *time.Time
+	Metadata     map[string]string
+}
+
+// CaseRepository persists security cases.
+type CaseRepository interface {
+	Upsert(ctx context.Context, c CaseRecord) error
+	GetByID(ctx context.Context, id string) (CaseRecord, error)
+	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]CaseRecord, error)
+	ListByAssessment(ctx context.Context, assessmentID string, limit, offset int) ([]CaseRecord, error)
+	ListByTenant(ctx context.Context, tenantID contracts.TenantID, limit, offset int) ([]CaseRecord, error)
+}
+
+// ReportRecord is a persistence DTO for assessment reports.
+type ReportRecord struct {
+	ID            string
+	TenantID      contracts.TenantID
+	ProjectID     contracts.ProjectID
+	AssessmentID  string
+	GeneratedAt   time.Time
+	GeneratedBy   contracts.PrincipalID
+	SchemaVersion string
+	Status        string
+	SnapshotJSON  []byte
+}
+
+// ReportRepository persists reports.
+type ReportRepository interface {
+	Upsert(ctx context.Context, r ReportRecord) error
+	GetByID(ctx context.Context, id string) (ReportRecord, error)
+	List(ctx context.Context, limit, offset int) ([]ReportRecord, error)
+	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]ReportRecord, error)
 }

@@ -87,10 +87,10 @@ func scanAuditRows(rows *sql.Rows) ([]audit.Entry, error) {
 
 func scanAudit(s interface{ Scan(dest ...any) error }) (audit.Entry, error) {
 	var (
-		id, action, corr, outcome, reason string
+		id, action, corr, outcome, reason                                 string
 		pid, ptype, projectID, scopeID, taskID, decisionID, grantID, caus sql.NullString
-		ts time.Time
-		meta []byte
+		ts                                                                time.Time
+		meta                                                              []byte
 	)
 	if err := s.Scan(&id, &action, &ts, &pid, &ptype, &projectID, &scopeID, &taskID,
 		&decisionID, &grantID, &corr, &caus, &outcome, &reason, &meta); err != nil {

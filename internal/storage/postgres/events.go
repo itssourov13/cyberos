@@ -108,10 +108,10 @@ func scanEvents(rows *sql.Rows) ([]contracts.EventEnvelope, error) {
 
 func scanEvent(s interface{ Scan(dest ...any) error }) (contracts.EventEnvelope, error) {
 	var (
-		id, typ, ver, corr string
+		id, typ, ver, corr                           string
 		pid, ptype, projectID, scopeID, taskID, caus sql.NullString
-		ts time.Time
-		payload []byte
+		ts                                           time.Time
+		payload                                      []byte
 	)
 	if err := s.Scan(&id, &typ, &ver, &ts, &pid, &ptype, &projectID, &scopeID, &taskID, &corr, &caus, &payload); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

@@ -3,6 +3,7 @@ package reports
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -14,6 +15,7 @@ import (
 	"cyberos/internal/contracts"
 	"cyberos/internal/riskprio"
 	"cyberos/internal/secrets"
+	"cyberos/internal/storage/ports"
 )
 
 const SchemaVersion = "cyberos-report-v1"
@@ -68,11 +70,20 @@ type BuildInput struct {
 type Service struct {
 	mu    sync.RWMutex
 	items map[string]*Report
+	repo  ports.ReportRepository
 }
 
 // NewService constructs a report service.
 func NewService() *Service {
 	return &Service{items: map[string]*Report{}}
+}
+
+// WithRepository attaches optional durable persistence (Phase 7B).
+func (s *Service) WithRepository(repo ports.ReportRepository) *Service {
+	if s != nil {
+		s.repo = repo
+	}
+	return s
 }
 
 // Create builds and stores a report from BuildInput.
@@ -120,6 +131,19 @@ func (s *Service) Create(id string, in BuildInput) (*Report, error) {
 	if _, ok := s.items[id]; ok {
 		return nil, contracts.ErrConflict
 	}
+	if s.repo != nil {
+		snap, err := json.Marshal(r.Snapshot)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.repo.Upsert(context.Background(), ports.ReportRecord{
+			ID: r.ID, TenantID: r.TenantID, ProjectID: r.ProjectID, AssessmentID: r.AssessmentID,
+			GeneratedAt: r.GeneratedAt, GeneratedBy: r.GeneratedBy, SchemaVersion: r.SchemaVersion,
+			Status: r.Status, SnapshotJSON: snap,
+		}); err != nil {
+			return nil, err
+		}
+	}
 	s.items[id] = r
 	cp := *r
 	return &cp, nil
@@ -128,13 +152,29 @@ func (s *Service) Create(id string, in BuildInput) (*Report, error) {
 // Get returns a report by id.
 func (s *Service) Get(id string) (*Report, error) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	r, ok := s.items[id]
-	if !ok {
-		return nil, contracts.ErrNotFound
+	if ok {
+		cp := *r
+		s.mu.RUnlock()
+		return &cp, nil
 	}
-	cp := *r
-	return &cp, nil
+	s.mu.RUnlock()
+	if s.repo != nil {
+		rec, err := s.repo.GetByID(context.Background(), id)
+		if err != nil {
+			return nil, err
+		}
+		var snap Snapshot
+		if len(rec.SnapshotJSON) > 0 {
+			_ = json.Unmarshal(rec.SnapshotJSON, &snap)
+		}
+		return &Report{
+			ID: rec.ID, TenantID: rec.TenantID, ProjectID: rec.ProjectID, AssessmentID: rec.AssessmentID,
+			GeneratedAt: rec.GeneratedAt, GeneratedBy: rec.GeneratedBy, SchemaVersion: rec.SchemaVersion,
+			Status: rec.Status, Snapshot: &snap,
+		}, nil
+	}
+	return nil, contracts.ErrNotFound
 }
 
 // List returns all reports (test/demo).

@@ -31,3 +31,8 @@ Findings and risk prioritization evaluations now have **optional** PostgreSQL re
 - `findings.Service.WithRepository` / `riskprio.Engine.WithRepository` dual-write and read-through
 - `NewInMemory()` remains in-memory only
 - Cases, reports, API keys, and production main wiring remain Phase 7B/7C
+
+## Phase 7B progress
+
+Cases, reports, and API keys have optional PostgreSQL adapters (`CaseRepo`, `ReportRepo`, `APIKeyStore`).
+Services use `WithRepository` / `auth.KeyStore`. Production main wiring remains Phase 7C.
