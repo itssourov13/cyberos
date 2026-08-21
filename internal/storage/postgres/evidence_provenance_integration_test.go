@@ -16,7 +16,7 @@ import (
 
 func TestPhase8A_EvidenceProvenanceDurability(t *testing.T) {
 	db := setupDB(t)
-	ctx := context.Background()
+	
 	eRepo := postgres.NewEvidenceRepo(db)
 	pRepo := postgres.NewProvenanceRepo(db)
 
