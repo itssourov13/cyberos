@@ -1,19 +1,42 @@
-# Phase 7 — Durable Platform Completion
+# Phase 7 — Durable Platform Completion (**FROZEN** at `v0.7.0`)
 
-| Sub-phase | Status | Commit focus |
-|-----------|--------|----------------|
-| 7A | Done | Findings + risk PG ports/adapters |
-| 7B | Done | Cases, reports, API keys PG |
-| 7C | Done | `sdk.NewProduction`, mandatory auth serve |
-| 7D | Done | Assessment → Report durable E2E + restart simulation |
+| Sub-phase | Focus | Status |
+|-----------|--------|--------|
+| **7A** | Findings + risk evaluation PostgreSQL ports/adapters | Done |
+| **7B** | Cases, reports, API keys PostgreSQL | Done |
+| **7C** | `sdk.NewProduction`, mandatory auth on production serve | Done |
+| **7D** | Assessment → Report durable E2E + restart simulation | Done |
+| **7E** | Final audit, docs freeze, release tag | Done |
 
-## Phase 7D
+## Security spine (unchanged)
 
-Validates:
+```
+Scope → Principal → Auth → Control Plane → Decision → Grant
+  → Broker → Sandbox → Executor → Phase6Sink
+  → Findings / Risk / Cases / Reports
+```
 
-Assessment → Control Plane → Grant → Broker → Phase6Sink →
-Finding / Risk / Case → Report (JSON/MD) → repository read-through after memory wipe
+- **Broker** is the sole product execution gateway.
+- **No valid grant ⇒ no execution.**
+- Auth does **not** issue grants.
+- Production does **not** silently fall back to unauthenticated memory mode.
 
-PostgreSQL full restart path: `tests/integration/phase7d_postgres_test.go` (`-tags=integration`).
+## Constructors
 
-Security spine unchanged. Broker remains sole execution gateway.
+| Constructor | Use |
+|-------------|-----|
+| `sdk.NewInMemory()` | Tests, local CLI, development serve |
+| `sdk.NewProduction(ctx, cfg, migrationsDir)` | `CYBEROS_ENV=production` + `CYBEROS_DATABASE_URL` |
+
+## Known limitations
+
+1. **Live PostgreSQL** integration tests skip when no server is reachable on the configured DSN. Restart durability against a real DB is **code-complete** but **environment-dependent**.
+2. Asset **inventory** (observations/endpoints) remains primarily in-process; domain `assets` table has a repo for core asset rows.
+3. Process execution remains **fail-closed** by default (`process.DefaultPolicy.Enabled=false`).
+4. Admin / Break-Glass / AI / ZOYA / JARVIS / UAB / distributed workers are **out of scope** for Phase 7.
+
+## Validation (7E)
+
+- `go test ./...` — required green
+- `go vet ./...` / `go build ./...` — required green
+- `go test -tags=integration ./...` — green with PG tests **SKIP** if DB unavailable

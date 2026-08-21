@@ -294,3 +294,8 @@ See `docs/CASES.md`. Downstream of findings/risk; never linked to Broker/Executo
 ## Phase 6H — Freeze
 
 See `docs/PHASE6_FREEZE.md`. Assessment post-exec pipeline wires assets/findings/risk/cases without touching Broker.
+
+
+## Phase 7 (frozen at v0.7.0)
+
+Durable platform: PostgreSQL ports for findings/risk/cases/reports/API keys; `sdk.NewProduction`; mandatory auth in production serve. See `docs/PHASE7.md`.

@@ -53,3 +53,6 @@ Behavior:
 Health/version remain public; other `/api/v1/*` routes require API key when auth is required.
 
 Authentication never issues execution grants. Authorization remains Control Plane → Grant → Broker.
+
+
+**Phase 7 frozen at tag `v0.7.0`.** See `docs/PHASE7.md` for limitations (including PG environment dependency).
