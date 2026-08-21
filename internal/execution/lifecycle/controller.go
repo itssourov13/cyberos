@@ -4,6 +4,7 @@
 package lifecycle
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"cyberos/internal/evidence"
 	"cyberos/internal/findings"
 	"cyberos/internal/provenance"
+	"cyberos/internal/storage/ports"
 )
 
 // Controller orchestrates grant-gated execution and evidence enrichment.
@@ -26,6 +28,7 @@ type Controller struct {
 
 	mu      sync.RWMutex
 	records map[contracts.ExecutionID]*contracts.ExecutionRecord
+	repo    ports.ExecutionRecordRepository // optional durable (Phase 9D)
 	// Now for tests.
 	Now func() time.Time
 }
@@ -52,6 +55,11 @@ func WithResourcePolicy(p contracts.ResourcePolicy) Option {
 	return func(c *Controller) { c.policy = &p }
 }
 
+// WithRepository attaches durable execution record storage. Persist errors propagate.
+func WithRepository(repo ports.ExecutionRecordRepository) Option {
+	return func(c *Controller) { c.repo = repo }
+}
+
 // New constructs a lifecycle controller. broker is required.
 func New(broker contracts.ToolBroker, opts ...Option) *Controller {
 	c := &Controller{
@@ -70,6 +78,7 @@ type RunRequest struct {
 	Grant           contracts.ExecutionGrant
 	Parameters      map[string]any
 	Attempt         int
+	IdempotencyKey  string               // optional; completed jobs with same key are returned without re-exec
 	EvidenceID      contracts.EvidenceID // optional; auto-generated if empty
 	FindingTitle    string               // optional: create a finding when non-empty and execution succeeds
 	FindingSeverity contracts.FindingSeverity
@@ -93,6 +102,11 @@ func (c *Controller) Run(req RunRequest) (RunResult, error) {
 	if err := req.Grant.Validate(); err != nil {
 		return RunResult{}, fmt.Errorf("%w: grant: %v", contracts.ErrGrantInvalid, err)
 	}
+	if req.IdempotencyKey != "" {
+		if existing, ok := c.lookupIdempotent(req.IdempotencyKey); ok {
+			return RunResult{Record: existing}, nil
+		}
+	}
 
 	now := c.Now()
 	attempt := req.Attempt
@@ -106,24 +120,27 @@ func (c *Controller) Run(req RunRequest) (RunResult, error) {
 	}
 
 	rec := contracts.ExecutionRecord{
-		ID:            execID,
-		State:         contracts.ExecutionLifecycleStarted,
-		TaskID:        req.Grant.TaskID,
-		GrantID:       req.Grant.ID,
-		Principal:     req.Grant.Principal,
-		ProjectID:     req.Grant.ProjectID,
-		ScopeID:       req.Grant.ScopeID,
-		CapabilityID:  req.Grant.CapabilityID,
-		Attempt:       attempt,
-		StartedAt:     now,
-		CorrelationID: corr,
-		Metrics:       map[string]any{},
+		ID:             execID,
+		State:          contracts.ExecutionLifecycleStarted,
+		TaskID:         req.Grant.TaskID,
+		GrantID:        req.Grant.ID,
+		Principal:      req.Grant.Principal,
+		ProjectID:      req.Grant.ProjectID,
+		ScopeID:        req.Grant.ScopeID,
+		CapabilityID:   req.Grant.CapabilityID,
+		Attempt:        attempt,
+		StartedAt:      now,
+		CorrelationID:  corr,
+		IdempotencyKey: req.IdempotencyKey,
+		Metrics:        map[string]any{},
 	}
 	if c.policy != nil {
 		p := *c.policy
 		rec.ResourcePolicySnapshot = &p
 	}
-	c.store(rec)
+	if err := c.store(rec); err != nil {
+		return RunResult{}, err
+	}
 
 	// Execute via sole gateway
 	execReq := contracts.ExecutionRequest{
@@ -159,7 +176,9 @@ func (c *Controller) Run(req RunRequest) (RunResult, error) {
 		rec.State = contracts.ExecutionLifecycleFailed
 		rec.FailureReason = res.ErrorMessage
 	}
-	c.store(rec)
+	if err := c.store(rec); err != nil {
+		return RunResult{Record: rec, Result: res}, err
+	}
 
 	if c.audit != nil {
 		_, _ = c.audit.RecordExecution(req.Grant, res)
@@ -167,8 +186,11 @@ func (c *Controller) Run(req RunRequest) (RunResult, error) {
 
 	out := RunResult{Record: rec, Result: res}
 
-	// Evidence enrichment
-	if c.evidence != nil {
+	// Evidence is required for complete forensic linkage (Phase 9D).
+	if c.evidence == nil {
+		return out, fmt.Errorf("%w: evidence service required for lifecycle runs", contracts.ErrInvalidArgument)
+	}
+	{
 		evID := req.EvidenceID
 		if evID == "" {
 			evID = contracts.EvidenceID("ev-" + string(execID))
@@ -185,14 +207,17 @@ func (c *Controller) Run(req RunRequest) (RunResult, error) {
 			"executor_id":  res.ExecutorID,
 		}
 		ev, eerr := c.evidence.RecordFromExecution(res, req.Grant, evID)
-		if eerr == nil {
-			out.Evidence = &ev.ID
-			if c.provenance != nil {
-				_, _ = c.provenance.RecordForEvidence(ev, res.ExecutorID)
+		if eerr != nil {
+			return out, fmt.Errorf("evidence required: %w", eerr)
+		}
+		out.Evidence = &ev.ID
+		if c.provenance != nil {
+			if _, perr := c.provenance.RecordForEvidence(ev, res.ExecutorID); perr != nil {
+				return out, fmt.Errorf("provenance required: %w", perr)
 			}
-			if c.audit != nil {
-				_, _ = c.audit.RecordEvidence(ev.ID, req.Grant, corr)
-			}
+		}
+		if c.audit != nil {
+			_, _ = c.audit.RecordEvidence(ev.ID, req.Grant, corr)
 		}
 	}
 
@@ -234,32 +259,73 @@ func (c *Controller) Run(req RunRequest) (RunResult, error) {
 // Get returns a stored execution record.
 func (c *Controller) Get(id contracts.ExecutionID) (contracts.ExecutionRecord, error) {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
 	r, ok := c.records[id]
-	if !ok {
-		return contracts.ExecutionRecord{}, contracts.ErrNotFound
+	if ok {
+		cp := *r
+		c.mu.RUnlock()
+		return cp, nil
 	}
-	return *r, nil
+	c.mu.RUnlock()
+	if c.repo != nil {
+		return c.repo.GetByID(context.Background(), id)
+	}
+	return contracts.ExecutionRecord{}, contracts.ErrNotFound
 }
 
-// ListByTask returns records for a task.
+func (c *Controller) lookupIdempotent(key string) (contracts.ExecutionRecord, bool) {
+	c.mu.RLock()
+	for _, r := range c.records {
+		if r.IdempotencyKey == key && r.State != contracts.ExecutionLifecycleStarted && r.State != contracts.ExecutionLifecycleQueued {
+			cp := *r
+			c.mu.RUnlock()
+			return cp, true
+		}
+	}
+	c.mu.RUnlock()
+	if c.repo != nil {
+		rec, err := c.repo.GetByIdempotencyKey(context.Background(), key)
+		if err == nil {
+			return rec, true
+		}
+	}
+	return contracts.ExecutionRecord{}, false
+}
+
+// ListByTask returns records for a task (memory, then durable when configured).
 func (c *Controller) ListByTask(taskID contracts.TaskID) []contracts.ExecutionRecord {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
 	var out []contracts.ExecutionRecord
+	seen := map[contracts.ExecutionID]struct{}{}
 	for _, r := range c.records {
 		if r.TaskID == taskID {
 			out = append(out, *r)
+			seen[r.ID] = struct{}{}
+		}
+	}
+	c.mu.RUnlock()
+	if c.repo != nil {
+		if more, err := c.repo.ListByTask(context.Background(), taskID, 200, 0); err == nil {
+			for _, r := range more {
+				if _, ok := seen[r.ID]; !ok {
+					out = append(out, r)
+				}
+			}
 		}
 	}
 	return out
 }
 
-func (c *Controller) store(r contracts.ExecutionRecord) {
+func (c *Controller) store(r contracts.ExecutionRecord) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	cp := r
 	c.records[r.ID] = &cp
+	c.mu.Unlock()
+	if c.repo != nil {
+		if err := c.repo.Upsert(context.Background(), r); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func errString(err error) string {

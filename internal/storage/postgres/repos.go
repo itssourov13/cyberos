@@ -20,5 +20,6 @@ func NewRepositories(db *DB) *ports.Repositories {
 		Reports:      NewReportRepo(db),
 		Evidence:     NewEvidenceRepo(db),
 		Provenance:   NewProvenanceRepo(db),
+		Executions:   NewExecutionRecordRepo(db),
 	}
 }

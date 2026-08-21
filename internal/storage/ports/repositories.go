@@ -125,6 +125,7 @@ type Repositories struct {
 	Reports      ReportRepository
 	Evidence     EvidenceRepository
 	Provenance   ProvenanceRepository
+	Executions   ExecutionRecordRepository
 }
 
 // FindingRepository persists security findings (Phase 7A). Persistence only — not authorization.
@@ -225,4 +226,15 @@ type ProvenanceRepository interface {
 	Upsert(ctx context.Context, p *provenance.Provenance) error
 	Get(ctx context.Context, subjectType, subjectID string) (*provenance.Provenance, error)
 	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]*provenance.Provenance, error)
+}
+
+
+// ExecutionRecordRepository persists tool execution lifecycle records (Phase 9D).
+// Persistence is not authorization; Broker remains the sole execution gateway.
+type ExecutionRecordRepository interface {
+	Upsert(ctx context.Context, r contracts.ExecutionRecord) error
+	GetByID(ctx context.Context, id contracts.ExecutionID) (contracts.ExecutionRecord, error)
+	GetByIdempotencyKey(ctx context.Context, key string) (contracts.ExecutionRecord, error)
+	ListByTask(ctx context.Context, taskID contracts.TaskID, limit, offset int) ([]contracts.ExecutionRecord, error)
+	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]contracts.ExecutionRecord, error)
 }

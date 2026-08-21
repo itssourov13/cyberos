@@ -17,6 +17,7 @@ import (
 	"cyberos/internal/events"
 	"cyberos/internal/evidence"
 	"cyberos/internal/execution"
+	"cyberos/internal/execution/lifecycle"
 	"cyberos/internal/execution/sandbox"
 	"cyberos/internal/findings"
 	"cyberos/internal/identity"
@@ -109,6 +110,13 @@ func NewProduction(ctx context.Context, cfg *config.Config, migrationsDir string
 	}
 	_ = c.Catalog.RefreshFromRepos(ctx, repos)
 	c.WireAssessment()
+	c.Lifecycle = lifecycle.New(brk,
+		lifecycle.WithEvidence(c.Evidence),
+		lifecycle.WithFindings(c.Findings),
+		lifecycle.WithProvenance(c.Provenance),
+		lifecycle.WithAudit(c.Audit),
+		lifecycle.WithRepository(repos.Executions),
+	)
 
 	return &Production{Client: c, DB: db, Auth: authenticator, Keys: keyStore}, nil
 }

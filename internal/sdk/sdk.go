@@ -22,6 +22,7 @@ import (
 	"cyberos/internal/events"
 	"cyberos/internal/evidence"
 	"cyberos/internal/execution"
+	"cyberos/internal/execution/lifecycle"
 	"cyberos/internal/execution/mock"
 	"cyberos/internal/execution/sandbox"
 	"cyberos/internal/findings"
@@ -59,6 +60,7 @@ type Client struct {
 	RiskPrio   *riskprio.Engine
 	Cases      *cases.Service
 	Reports    *reports.Service
+	Lifecycle  *lifecycle.Controller // optional durable execution jobs (Phase 9D)
 }
 
 // NewInMemory constructs a client with mock broker, issuer, evidence stack,
@@ -96,6 +98,11 @@ func NewInMemory() *Client {
 		Reports:    reports.NewService(),
 		ExecReg:    execReg,
 	}
+	c.Lifecycle = lifecycle.New(brk,
+		lifecycle.WithEvidence(ev),
+		lifecycle.WithFindings(c.Findings),
+		lifecycle.WithProvenance(c.Provenance),
+	)
 	// Phase 4A: no demo seed — catalog starts empty until RefreshFromRepos or explicit upserts.
 	return c
 }

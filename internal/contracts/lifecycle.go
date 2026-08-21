@@ -6,6 +6,7 @@ import "time"
 type ExecutionLifecycleState string
 
 const (
+	ExecutionLifecycleQueued    ExecutionLifecycleState = "QUEUED"
 	ExecutionLifecycleStarted   ExecutionLifecycleState = "STARTED"
 	ExecutionLifecycleSucceeded ExecutionLifecycleState = "SUCCEEDED"
 	ExecutionLifecycleFailed    ExecutionLifecycleState = "FAILED"
@@ -17,7 +18,7 @@ const (
 // Valid reports whether the lifecycle state is known.
 func (s ExecutionLifecycleState) Valid() bool {
 	switch s {
-	case ExecutionLifecycleStarted, ExecutionLifecycleSucceeded, ExecutionLifecycleFailed,
+	case ExecutionLifecycleQueued, ExecutionLifecycleStarted, ExecutionLifecycleSucceeded, ExecutionLifecycleFailed,
 		ExecutionLifecycleTimeout, ExecutionLifecycleRejected, ExecutionLifecycleCancelled:
 		return true
 	default:
@@ -43,7 +44,12 @@ type ExecutionRecord struct {
 	Outcome       ExecutionStatus         `json:"outcome,omitempty"`
 	FailureReason string                  `json:"failure_reason,omitempty"`
 	ExecutorID    string                  `json:"executor_id,omitempty"`
-	CorrelationID CorrelationID           `json:"correlation_id,omitempty"`
+	CorrelationID  CorrelationID           `json:"correlation_id,omitempty"`
+	CausationID    string                  `json:"causation_id,omitempty"`
+	IdempotencyKey string                  `json:"idempotency_key,omitempty"`
+	ToolID         string                  `json:"tool_id,omitempty"`
+	PackVersion    string                  `json:"pack_version,omitempty"`
+	TenantID       TenantID                `json:"tenant_id,omitempty"`
 	// ResourcePolicySnapshot is a copy of limits applied for this attempt.
 	ResourcePolicySnapshot *ResourcePolicy `json:"resource_policy,omitempty"`
 	// Metrics are safe, non-host-identifying execution metrics.

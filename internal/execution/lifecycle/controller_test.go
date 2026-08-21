@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -86,5 +87,84 @@ func TestListByTask(t *testing.T) {
 	list := ctrl.ListByTask("task-1")
 	if len(list) != 1 {
 		t.Fatalf("list=%d", len(list))
+	}
+}
+
+type memExecRepo struct {
+	m      map[contracts.ExecutionID]contracts.ExecutionRecord
+	byIdem map[string]contracts.ExecutionID
+}
+
+func (m *memExecRepo) Upsert(_ context.Context, r contracts.ExecutionRecord) error {
+	if m.m == nil {
+		m.m = map[contracts.ExecutionID]contracts.ExecutionRecord{}
+		m.byIdem = map[string]contracts.ExecutionID{}
+	}
+	m.m[r.ID] = r
+	if r.IdempotencyKey != "" {
+		m.byIdem[r.IdempotencyKey] = r.ID
+	}
+	return nil
+}
+func (m *memExecRepo) GetByID(_ context.Context, id contracts.ExecutionID) (contracts.ExecutionRecord, error) {
+	r, ok := m.m[id]
+	if !ok {
+		return contracts.ExecutionRecord{}, contracts.ErrNotFound
+	}
+	return r, nil
+}
+func (m *memExecRepo) GetByIdempotencyKey(_ context.Context, key string) (contracts.ExecutionRecord, error) {
+	id, ok := m.byIdem[key]
+	if !ok {
+		return contracts.ExecutionRecord{}, contracts.ErrNotFound
+	}
+	return m.GetByID(context.Background(), id)
+}
+func (m *memExecRepo) ListByTask(_ context.Context, taskID contracts.TaskID, limit, offset int) ([]contracts.ExecutionRecord, error) {
+	var out []contracts.ExecutionRecord
+	for _, r := range m.m {
+		if r.TaskID == taskID {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+func (m *memExecRepo) ListByProject(context.Context, contracts.ProjectID, int, int) ([]contracts.ExecutionRecord, error) {
+	return nil, nil
+}
+
+func TestIdempotentRetryDoesNotDuplicate(t *testing.T) {
+	repo := &memExecRepo{}
+	ctrl := New(broker.New(sandbox.New(mock.New())),
+		WithEvidence(evidence.NewService()),
+		WithProvenance(provenance.NewService()),
+		WithRepository(repo),
+	)
+	g := sampleGrant()
+	g.Nonce = "idem-nonce-1"
+	out1, err := ctrl.Run(RunRequest{Grant: g, IdempotencyKey: "idem-1", CorrelationID: "c1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out2, err := ctrl.Run(RunRequest{Grant: g, IdempotencyKey: "idem-1", CorrelationID: "c1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out1.Record.ID != out2.Record.ID {
+		t.Fatalf("idempotent should return same record %s vs %s", out1.Record.ID, out2.Record.ID)
+	}
+	// Durable read-through after clearing memory
+	ctrl.records = map[contracts.ExecutionID]*contracts.ExecutionRecord{}
+	got, err := ctrl.Get(out1.Record.ID)
+	if err != nil || got.ID != out1.Record.ID {
+		t.Fatal(err, got)
+	}
+}
+
+func TestEvidenceRequiredOnLifecycle(t *testing.T) {
+	ctrl := New(broker.New(sandbox.New(mock.New()))) // no evidence
+	_, err := ctrl.Run(RunRequest{Grant: sampleGrant()})
+	if err == nil {
+		t.Fatal("evidence service required for complete provenance path")
 	}
 }
