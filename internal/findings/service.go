@@ -3,12 +3,14 @@
 package findings
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
 	"cyberos/internal/contracts"
 	domainfinding "cyberos/internal/domain/finding"
 	"cyberos/internal/evidence"
+	"cyberos/internal/storage/ports"
 )
 
 // Service records and retrieves Findings.
@@ -17,6 +19,7 @@ type Service struct {
 	items         map[contracts.FindingID]*domainfinding.Finding
 	byFingerprint map[string]*domainfinding.Finding
 	evidence      *evidence.Service
+	repo          ports.FindingRepository // optional durable backend (Phase 7A)
 }
 
 // NewService constructs a findings service.
@@ -27,6 +30,21 @@ func NewService(evidenceSvc *evidence.Service) *Service {
 		byFingerprint: make(map[string]*domainfinding.Finding),
 		evidence:      evidenceSvc,
 	}
+}
+
+// WithRepository attaches optional PostgreSQL (or other) persistence. Nil keeps in-memory only.
+func (s *Service) WithRepository(repo ports.FindingRepository) *Service {
+	if s != nil {
+		s.repo = repo
+	}
+	return s
+}
+
+func (s *Service) persist(f *domainfinding.Finding) {
+	if s == nil || s.repo == nil || f == nil {
+		return
+	}
+	_ = s.repo.Upsert(context.Background(), f)
 }
 
 // CreateRequest carries data for a new finding.
@@ -86,6 +104,7 @@ func (s *Service) Create(req CreateRequest) (*domainfinding.Finding, error) {
 	if cp.Fingerprint != "" {
 		s.byFingerprint[cp.Fingerprint] = &cp
 	}
+	s.persist(&cp)
 	return &cp, nil
 }
 
@@ -95,13 +114,17 @@ func (s *Service) Get(id contracts.FindingID) (*domainfinding.Finding, error) {
 		return nil, fmt.Errorf("%w: findings service not configured", contracts.ErrInvalidArgument)
 	}
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	f, ok := s.items[id]
-	if !ok {
-		return nil, contracts.ErrNotFound
+	if ok {
+		cp := *f
+		s.mu.RUnlock()
+		return &cp, nil
 	}
-	cp := *f
-	return &cp, nil
+	s.mu.RUnlock()
+	if s.repo != nil {
+		return s.repo.GetByID(context.Background(), id)
+	}
+	return nil, contracts.ErrNotFound
 }
 
 // ListByTask returns findings for a task.

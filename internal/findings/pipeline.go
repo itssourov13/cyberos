@@ -1,6 +1,7 @@
 package findings
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -57,7 +58,18 @@ func (s *Service) Ingest(req IngestRequest) ([]IngestResult, error) {
 		}
 		hs := parseSeverity(h.Severity, sev)
 		fp := Fingerprint(string(req.ProjectID), target, req.Result.Capability, title, h.Detail)
+		s.mu.RLock()
 		existing := s.byFingerprint[fp]
+		s.mu.RUnlock()
+		if existing == nil && s.repo != nil {
+			if loaded, err := s.repo.GetByFingerprint(context.Background(), req.ProjectID, fp); err == nil {
+				existing = loaded
+				s.mu.Lock()
+				s.items[loaded.ID] = loaded
+				s.byFingerprint[fp] = loaded
+				s.mu.Unlock()
+			}
+		}
 		now := time.Now().UTC()
 		if existing != nil {
 			action := contracts.FindingStatusUnchanged
@@ -74,6 +86,7 @@ func (s *Service) Ingest(req IngestRequest) ([]IngestResult, error) {
 				existing.EvidenceIDs = appendUnique(existing.EvidenceIDs, req.EvidenceIDs...)
 			}
 			out = append(out, IngestResult{Finding: existing, Action: action})
+			s.persist(existing)
 			continue
 		}
 		id := contracts.FindingID(fmt.Sprintf("f-%s-%d", fp[:8], i))
@@ -100,6 +113,7 @@ func (s *Service) Ingest(req IngestRequest) ([]IngestResult, error) {
 		}
 		s.byFingerprint[fp] = f
 		s.mu.Unlock()
+		s.persist(f)
 		out = append(out, IngestResult{Finding: f, Action: contracts.FindingStatusNew})
 	}
 	return out, nil
@@ -115,6 +129,7 @@ func (s *Service) Resolve(id contracts.FindingID) (*domainfinding.Finding, error
 	}
 	f.Status = contracts.FindingStatusResolved
 	f.LastSeen = time.Now().UTC()
+	s.persist(f)
 	return f, nil
 }
 

@@ -3,12 +3,14 @@
 package riskprio
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
 
 	"cyberos/internal/contracts"
 	domainfinding "cyberos/internal/domain/finding"
+	"cyberos/internal/storage/ports"
 )
 
 const ModelVersion = "cyberos-risk-v1"
@@ -48,6 +50,7 @@ type Engine struct {
 	mu    sync.RWMutex
 	items map[string]*Evaluation // by finding id (latest)
 	all   map[string]*Evaluation // by risk id
+	repo  ports.RiskEvaluationRepository
 }
 
 // NewEngine constructs a prioritization engine.
@@ -56,6 +59,27 @@ func NewEngine() *Engine {
 		items: map[string]*Evaluation{},
 		all:   map[string]*Evaluation{},
 	}
+}
+
+// WithRepository attaches optional durable persistence (Phase 7A).
+func (e *Engine) WithRepository(repo ports.RiskEvaluationRepository) *Engine {
+	if e != nil {
+		e.repo = repo
+	}
+	return e
+}
+
+func (e *Engine) persist(ev *Evaluation) {
+	if e == nil || e.repo == nil || ev == nil {
+		return
+	}
+	_ = e.repo.Upsert(context.Background(), ports.RiskEvaluationRecord{
+		ID: ev.ID, ProjectID: ev.ProjectID, AssessmentID: ev.AssessmentID,
+		FindingID: ev.FindingID, AssetID: ev.AssetID, Severity: ev.Severity,
+		Confidence: ev.Confidence, AssetCriticality: ev.AssetCriticality, Exposure: ev.Exposure,
+		Score: ev.Score, Priority: ev.Priority, Factors: ev.Factors,
+		ModelVersion: ev.ModelVersion, CalculatedAt: ev.CalculatedAt,
+	})
 }
 
 // Score computes a deterministic 0–100 score and priority from factors.
@@ -129,6 +153,7 @@ func (e *Engine) Evaluate(in Input) (*Evaluation, error) {
 	e.items[string(in.FindingID)] = ev
 	e.all[ev.ID] = ev
 	e.mu.Unlock()
+	e.persist(ev)
 	cp := *ev
 	return &cp, nil
 }
@@ -152,25 +177,51 @@ func (e *Engine) EvaluateFinding(f *domainfinding.Finding, crit contracts.AssetC
 // Get returns evaluation by risk id.
 func (e *Engine) Get(id string) (*Evaluation, error) {
 	e.mu.RLock()
-	defer e.mu.RUnlock()
 	ev, ok := e.all[id]
-	if !ok {
-		return nil, contracts.ErrNotFound
+	if ok {
+		cp := *ev
+		e.mu.RUnlock()
+		return &cp, nil
 	}
-	cp := *ev
-	return &cp, nil
+	e.mu.RUnlock()
+	if e.repo != nil {
+		rec, err := e.repo.GetByID(context.Background(), id)
+		if err != nil {
+			return nil, err
+		}
+		return recordToEval(rec), nil
+	}
+	return nil, contracts.ErrNotFound
 }
 
 // GetByFinding returns the latest evaluation for a finding.
 func (e *Engine) GetByFinding(id contracts.FindingID) (*Evaluation, error) {
 	e.mu.RLock()
-	defer e.mu.RUnlock()
 	ev, ok := e.items[string(id)]
-	if !ok {
-		return nil, contracts.ErrNotFound
+	if ok {
+		cp := *ev
+		e.mu.RUnlock()
+		return &cp, nil
 	}
-	cp := *ev
-	return &cp, nil
+	e.mu.RUnlock()
+	if e.repo != nil {
+		rec, err := e.repo.GetByFinding(context.Background(), id)
+		if err != nil {
+			return nil, err
+		}
+		return recordToEval(rec), nil
+	}
+	return nil, contracts.ErrNotFound
+}
+
+func recordToEval(rec ports.RiskEvaluationRecord) *Evaluation {
+	return &Evaluation{
+		ID: rec.ID, ProjectID: rec.ProjectID, AssessmentID: rec.AssessmentID,
+		FindingID: rec.FindingID, AssetID: rec.AssetID, Severity: rec.Severity,
+		Confidence: rec.Confidence, AssetCriticality: rec.AssetCriticality, Exposure: rec.Exposure,
+		Score: rec.Score, Priority: rec.Priority, Factors: rec.Factors,
+		ModelVersion: rec.ModelVersion, CalculatedAt: rec.CalculatedAt,
+	}
 }
 
 // ListByProject returns evaluations for a project.

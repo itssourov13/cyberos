@@ -23,3 +23,11 @@ Migrations `006`–`010` remain available for future durable adapters — schema
 - Set `CYBEROS_AUTH_REQUIRED=true` (or `CYBEROS_ENV=production`)
 - Bootstrap API key is printed once at serve start when auth required
 - Process execution remains fail-closed unless policy allowlist is enabled
+
+## Phase 7A progress (post-freeze)
+
+Findings and risk prioritization evaluations now have **optional** PostgreSQL repository ports/adapters (`ports.FindingRepository`, `ports.RiskEvaluationRepository`, `postgres.FindingRepo`, `postgres.RiskEvalRepo`).
+
+- `findings.Service.WithRepository` / `riskprio.Engine.WithRepository` dual-write and read-through
+- `NewInMemory()` remains in-memory only
+- Cases, reports, API keys, and production main wiring remain Phase 7B/7C

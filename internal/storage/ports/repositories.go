@@ -10,6 +10,7 @@ import (
 	"cyberos/internal/contracts"
 	"cyberos/internal/domain/asset"
 	"cyberos/internal/domain/capability"
+	"cyberos/internal/domain/finding"
 	"cyberos/internal/domain/principal"
 	"cyberos/internal/domain/project"
 	"cyberos/internal/domain/scope"
@@ -97,4 +98,42 @@ type Repositories struct {
 	Principals   PrincipalRepository
 	Capabilities CapabilityRepository
 	Assessments  AssessmentRepository
+	Findings     FindingRepository
+	RiskEvals    RiskEvaluationRepository
+}
+
+// FindingRepository persists security findings (Phase 7A). Persistence only — not authorization.
+type FindingRepository interface {
+	Upsert(ctx context.Context, f *finding.Finding) error
+	GetByID(ctx context.Context, id contracts.FindingID) (*finding.Finding, error)
+	GetByFingerprint(ctx context.Context, projectID contracts.ProjectID, fingerprint string) (*finding.Finding, error)
+	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]*finding.Finding, error)
+	ListByAssessment(ctx context.Context, assessmentID string, limit, offset int) ([]*finding.Finding, error)
+}
+
+// RiskEvaluationRecord is a persistence DTO for riskprio.Evaluation (not Control Plane RiskResult).
+type RiskEvaluationRecord struct {
+	ID               string
+	ProjectID        contracts.ProjectID
+	AssessmentID     string
+	FindingID        contracts.FindingID
+	AssetID          contracts.AssetID
+	Severity         contracts.FindingSeverity
+	Confidence       contracts.FindingConfidence
+	AssetCriticality contracts.AssetCriticality
+	Exposure         contracts.ExposureContext
+	Score            int
+	Priority         contracts.RiskPriority
+	Factors          map[string]string
+	ModelVersion     string
+	CalculatedAt     time.Time
+}
+
+// RiskEvaluationRepository persists risk prioritization evaluations (Phase 7A).
+type RiskEvaluationRepository interface {
+	Upsert(ctx context.Context, r RiskEvaluationRecord) error
+	GetByID(ctx context.Context, id string) (RiskEvaluationRecord, error)
+	GetByFinding(ctx context.Context, findingID contracts.FindingID) (RiskEvaluationRecord, error)
+	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]RiskEvaluationRecord, error)
+	ListByAssessment(ctx context.Context, assessmentID string, limit, offset int) ([]RiskEvaluationRecord, error)
 }
