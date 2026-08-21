@@ -100,7 +100,7 @@ func NewProduction(ctx context.Context, cfg *config.Config, migrationsDir string
 		Hub:        hub,
 		Tools:      toolMgr,
 		Platform:   tools.NewPlatform(toolMgr),
-		Assets:     assets.NewInventory(),
+		Assets:     assets.NewInventory().WithStore(repos.Assets, repos.Endpoints, repos.Observations),
 		RiskPrio:   riskprio.NewEngine().WithRepository(repos.RiskEvals),
 		Cases:      cases.NewService().WithRepository(repos.Cases),
 		Reports:    reports.NewService().WithRepository(repos.Reports),

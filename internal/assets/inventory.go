@@ -3,6 +3,7 @@
 package assets
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -12,16 +13,20 @@ import (
 
 	"cyberos/internal/contracts"
 	domainasset "cyberos/internal/domain/asset"
+	"cyberos/internal/storage/ports"
 	"cyberos/internal/tools"
 )
 
-// Inventory is the in-process asset/target intelligence store.
+// Inventory is the asset/target intelligence store (memory + optional durable ports).
 type Inventory struct {
-	mu        sync.RWMutex
-	assets    map[contracts.AssetID]*domainasset.Asset
-	byValue   map[string]contracts.AssetID // project|value → asset id
-	endpoints map[string]*domainasset.ServiceEndpoint
-	obs       map[string]*domainasset.Observation
+	mu         sync.RWMutex
+	assets     map[contracts.AssetID]*domainasset.Asset
+	byValue    map[string]contracts.AssetID // project|value → asset id
+	endpoints  map[string]*domainasset.ServiceEndpoint
+	obs        map[string]*domainasset.Observation
+	assetsR    ports.AssetRepository
+	endpointsR ports.AssetEndpointRepository
+	obsR       ports.AssetObservationRepository
 }
 
 // NewInventory constructs an empty inventory.
@@ -32,6 +37,16 @@ func NewInventory() *Inventory {
 		endpoints: map[string]*domainasset.ServiceEndpoint{},
 		obs:       map[string]*domainasset.Observation{},
 	}
+}
+
+// WithStore attaches optional durable repositories (Phase 8B). Persist errors propagate.
+func (inv *Inventory) WithStore(assets ports.AssetRepository, endpoints ports.AssetEndpointRepository, obs ports.AssetObservationRepository) *Inventory {
+	if inv != nil {
+		inv.assetsR = assets
+		inv.endpointsR = endpoints
+		inv.obsR = obs
+	}
+	return inv
 }
 
 // UpsertTarget creates or returns an asset for a target string within a project.
@@ -60,19 +75,30 @@ func (inv *Inventory) UpsertTarget(projectID contracts.ProjectID, target string,
 	inv.assets[id] = a
 	inv.byValue[key] = id
 	cp := *a
+	if inv.assetsR != nil {
+		if err := inv.assetsR.Upsert(context.Background(), &cp); err != nil {
+			delete(inv.assets, id)
+			delete(inv.byValue, key)
+			return nil, err
+		}
+	}
 	return &cp, nil
 }
 
 // Get returns an asset by id.
 func (inv *Inventory) Get(id contracts.AssetID) (*domainasset.Asset, error) {
 	inv.mu.RLock()
-	defer inv.mu.RUnlock()
 	a, ok := inv.assets[id]
-	if !ok {
-		return nil, contracts.ErrNotFound
+	if ok {
+		cp := *a
+		inv.mu.RUnlock()
+		return &cp, nil
 	}
-	cp := *a
-	return &cp, nil
+	inv.mu.RUnlock()
+	if inv.assetsR != nil {
+		return inv.assetsR.GetByID(context.Background(), id)
+	}
+	return nil, contracts.ErrNotFound
 }
 
 // ListByProject returns assets for a project.
@@ -98,10 +124,34 @@ func (inv *Inventory) RecordObservation(o *domainasset.Observation) error {
 		return err
 	}
 	inv.mu.Lock()
-	defer inv.mu.Unlock()
 	cp := *o
 	inv.obs[o.ID] = &cp
+	inv.mu.Unlock()
+	if inv.obsR != nil {
+		if err := inv.obsR.Upsert(context.Background(), &cp); err != nil {
+			inv.mu.Lock()
+			delete(inv.obs, o.ID)
+			inv.mu.Unlock()
+			return err
+		}
+	}
 	return nil
+}
+
+// GetObservation returns an observation by id (memory then durable store).
+func (inv *Inventory) GetObservation(id string) (*domainasset.Observation, error) {
+	inv.mu.RLock()
+	o, ok := inv.obs[id]
+	if ok {
+		cp := *o
+		inv.mu.RUnlock()
+		return &cp, nil
+	}
+	inv.mu.RUnlock()
+	if inv.obsR != nil {
+		return inv.obsR.GetByID(context.Background(), id)
+	}
+	return nil, contracts.ErrNotFound
 }
 
 // ListObservationsByAsset returns observations for an asset.
@@ -126,13 +176,18 @@ func (inv *Inventory) UpsertEndpoint(ep *domainasset.ServiceEndpoint) (*domainas
 	key := fmt.Sprintf("%s|%s|%d|%s", ep.AssetID, ep.Protocol, ep.Port, ep.Path)
 	id := "ep-" + shortHash(key)
 	inv.mu.Lock()
-	defer inv.mu.Unlock()
 	if existing, ok := inv.endpoints[id]; ok {
 		existing.LastSeen = time.Now().UTC()
 		if ep.Banner != "" {
 			existing.Banner = ep.Banner
 		}
 		cp := *existing
+		inv.mu.Unlock()
+		if inv.endpointsR != nil {
+			if err := inv.endpointsR.Upsert(context.Background(), &cp); err != nil {
+				return nil, err
+			}
+		}
 		return &cp, nil
 	}
 	ep.ID = id
@@ -140,7 +195,32 @@ func (inv *Inventory) UpsertEndpoint(ep *domainasset.ServiceEndpoint) (*domainas
 	ep.LastSeen = ep.FirstSeen
 	cp := *ep
 	inv.endpoints[id] = &cp
+	inv.mu.Unlock()
+	if inv.endpointsR != nil {
+		if err := inv.endpointsR.Upsert(context.Background(), &cp); err != nil {
+			inv.mu.Lock()
+			delete(inv.endpoints, id)
+			inv.mu.Unlock()
+			return nil, err
+		}
+	}
 	return &cp, nil
+}
+
+// GetEndpoint returns an endpoint by id.
+func (inv *Inventory) GetEndpoint(id string) (*domainasset.ServiceEndpoint, error) {
+	inv.mu.RLock()
+	ep, ok := inv.endpoints[id]
+	if ok {
+		cp := *ep
+		inv.mu.RUnlock()
+		return &cp, nil
+	}
+	inv.mu.RUnlock()
+	if inv.endpointsR != nil {
+		return inv.endpointsR.GetByID(context.Background(), id)
+	}
+	return nil, contracts.ErrNotFound
 }
 
 // ListEndpointsByAsset returns endpoints for an asset.

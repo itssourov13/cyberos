@@ -30,8 +30,25 @@ type ProjectRepository interface {
 // AssetRepository persists and retrieves assets.
 type AssetRepository interface {
 	Create(ctx context.Context, a *asset.Asset) error
+	Upsert(ctx context.Context, a *asset.Asset) error
 	GetByID(ctx context.Context, id contracts.AssetID) (*asset.Asset, error)
 	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]*asset.Asset, error)
+}
+
+// AssetEndpointRepository persists service endpoints (Phase 8B / migration 008).
+type AssetEndpointRepository interface {
+	Upsert(ctx context.Context, ep *asset.ServiceEndpoint) error
+	GetByID(ctx context.Context, id string) (*asset.ServiceEndpoint, error)
+	ListByAsset(ctx context.Context, assetID contracts.AssetID, limit, offset int) ([]*asset.ServiceEndpoint, error)
+	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]*asset.ServiceEndpoint, error)
+}
+
+// AssetObservationRepository persists tool observations (Phase 8B / migration 008).
+type AssetObservationRepository interface {
+	Upsert(ctx context.Context, o *asset.Observation) error
+	GetByID(ctx context.Context, id string) (*asset.Observation, error)
+	ListByAsset(ctx context.Context, assetID contracts.AssetID, limit, offset int) ([]*asset.Observation, error)
+	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]*asset.Observation, error)
 }
 
 // ScopeRepository persists and retrieves scopes.
@@ -95,6 +112,8 @@ type AssessmentRepository interface {
 type Repositories struct {
 	Projects     ProjectRepository
 	Assets       AssetRepository
+	Endpoints    AssetEndpointRepository
+	Observations AssetObservationRepository
 	Scopes       ScopeRepository
 	Tasks        TaskRepository
 	Principals   PrincipalRepository

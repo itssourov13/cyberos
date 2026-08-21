@@ -37,6 +37,26 @@ func (r *AssetRepo) Create(ctx context.Context, a *asset.Asset) error {
 	return nil
 }
 
+func (r *AssetRepo) Upsert(ctx context.Context, a *asset.Asset) error {
+	if err := a.Validate(); err != nil {
+		return err
+	}
+	meta, _ := json.Marshal(a.Metadata)
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO assets (id, project_id, type, name, value, description, created_at, updated_at, metadata)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		ON CONFLICT (id) DO UPDATE SET
+			project_id=EXCLUDED.project_id, type=EXCLUDED.type, name=EXCLUDED.name, value=EXCLUDED.value,
+			description=EXCLUDED.description, updated_at=EXCLUDED.updated_at, metadata=EXCLUDED.metadata`,
+		string(a.ID), string(a.ProjectID), string(a.Type), a.Name, a.Value, a.Description,
+		a.CreatedAt.UTC(), a.UpdatedAt.UTC(), meta,
+	)
+	if err != nil {
+		return fmt.Errorf("upsert asset: %w", err)
+	}
+	return nil
+}
+
 func (r *AssetRepo) GetByID(ctx context.Context, id contracts.AssetID) (*asset.Asset, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, project_id, type, name, value, description, created_at, updated_at, metadata

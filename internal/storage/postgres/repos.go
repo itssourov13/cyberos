@@ -7,6 +7,8 @@ func NewRepositories(db *DB) *ports.Repositories {
 	return &ports.Repositories{
 		Projects:     NewProjectRepo(db),
 		Assets:       NewAssetRepo(db),
+		Endpoints:    NewAssetEndpointRepo(db),
+		Observations: NewAssetObservationRepo(db),
 		Scopes:       NewScopeRepo(db),
 		Tasks:        NewTaskRepo(db),
 		Principals:   NewPrincipalRepo(db),
