@@ -161,9 +161,18 @@ func (e *toolExecutor) Execute(req contracts.ExecutionRequest) (contracts.Execut
 	if nr.Raw != nil {
 		out["raw"] = nr.Raw
 	}
+	corr := req.CorrelationID
+	if corr == "" {
+		corr = req.Grant.CorrelationID
+	}
+	out["correlation_id"] = string(corr)
+	out["project_id"] = string(req.Grant.ProjectID)
+	out["scope_id"] = string(req.Grant.ScopeID)
+	out["task_id"] = string(req.Grant.TaskID)
+	out["grant_id"] = string(req.Grant.ID)
 	return contracts.ExecutionResult{
 		Status: status, StartedAt: start, FinishedAt: finish,
-		Output: out, ErrorMessage: msg, CorrelationID: req.CorrelationID, ExecutorID: d.ExecutorID,
+		Output: out, ErrorMessage: msg, CorrelationID: corr, ExecutorID: d.ExecutorID,
 	}, err
 }
 

@@ -116,6 +116,13 @@ func (a *Adapter) Run(ctx context.Context, capability contracts.CapabilityID, pa
 	if capability != CapabilityID {
 		return tools.NormalizedResult{}, fmt.Errorf("%w: capability %s not provided by nmap", contracts.ErrCapabilityUnknown, capability)
 	}
+	// Executable path is never user-controlled via params.
+	if _, ok := params["binary"]; ok {
+		return tools.NormalizedResult{}, fmt.Errorf("%w: binary path cannot be supplied in parameters", contracts.ErrInvalidArgument)
+	}
+	if _, ok := params["path"]; ok {
+		return tools.NormalizedResult{}, fmt.Errorf("%w: executable path cannot be supplied in parameters", contracts.ErrInvalidArgument)
+	}
 	path, err := resolveBinary(a.bin)
 	if err != nil {
 		return tools.NormalizedResult{
@@ -214,15 +221,20 @@ func firstLine(s string) string {
 }
 
 func durationOr(params map[string]any, def time.Duration) time.Duration {
+	d := def
 	switch v := params["timeout"].(type) {
 	case time.Duration:
-		return v
+		d = v
 	case string:
-		if d, err := time.ParseDuration(v); err == nil {
-			return d
+		if parsed, err := time.ParseDuration(v); err == nil {
+			d = parsed
 		}
 	}
-	return def
+	const max = 5 * time.Minute
+	if d <= 0 || d > max {
+		return def
+	}
+	return d
 }
 
 var _ tools.Adapter = (*Adapter)(nil)

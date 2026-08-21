@@ -78,6 +78,9 @@ func (a *Adapter) Run(ctx context.Context, capability contracts.CapabilityID, pa
 	if capability != CapabilityID {
 		return tools.NormalizedResult{}, fmt.Errorf("%w: capability", contracts.ErrCapabilityUnknown)
 	}
+	if _, ok := params["binary"]; ok {
+		return tools.NormalizedResult{}, fmt.Errorf("%w: binary path cannot be supplied in parameters", contracts.ErrInvalidArgument)
+	}
 	url, _ := params["url"].(string)
 	url = strings.TrimSpace(url)
 	if url == "" {
