@@ -142,3 +142,50 @@ func contains(s, sub string) bool {
 			return false
 		}())
 }
+
+// CapabilityMapping describes Pack → Tool → Capability (discovery only).
+type CapabilityMapping struct {
+	PackID       string                  `json:"pack_id,omitempty"`
+	ToolID       string                  `json:"tool_id"`
+	ExecutorID   string                  `json:"executor_id,omitempty"`
+	CapabilityID contracts.CapabilityID  `json:"capability_id"`
+	Version      contracts.SchemaVersion `json:"version,omitempty"`
+}
+
+// CapabilityMap builds discovery mappings from registered packs and adapters.
+// It does not authorize execution.
+func (p *Platform) CapabilityMap() []CapabilityMapping {
+	if p == nil || p.manager == nil {
+		return nil
+	}
+	toolToPack := map[string]string{}
+	packVer := map[string]contracts.SchemaVersion{}
+	for _, pack := range p.packs.List() {
+		packVer[pack.ID] = pack.Version
+		for _, tid := range pack.ToolIDs {
+			toolToPack[tid] = pack.ID
+		}
+	}
+	var out []CapabilityMapping
+	for _, d := range p.manager.List() {
+		pid := toolToPack[d.ID]
+		for _, cap := range d.Capabilities {
+			out = append(out, CapabilityMapping{
+				PackID: pid, ToolID: d.ID, ExecutorID: d.ExecutorID,
+				CapabilityID: cap, Version: packVer[pid],
+			})
+		}
+	}
+	return out
+}
+
+// LookupCapability finds tools declaring a capability (discovery only).
+func (p *Platform) LookupCapability(cap contracts.CapabilityID) []CapabilityMapping {
+	var out []CapabilityMapping
+	for _, m := range p.CapabilityMap() {
+		if m.CapabilityID == cap {
+			out = append(out, m)
+		}
+	}
+	return out
+}
