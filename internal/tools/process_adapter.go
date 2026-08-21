@@ -53,6 +53,19 @@ func defaultBuildArgs(_ contracts.CapabilityID, params map[string]any) ([]string
 	if raw, ok := params["args"].([]string); ok {
 		args = append(args, raw...)
 	}
+	// Reject shell-style invocation patterns in argv (never sh -c).
+	for i, a := range args {
+		if a == "-c" || a == "--command" || a == "/c" {
+			return nil, fmt.Errorf("%w: shell command flags are not permitted in tool args", contracts.ErrInvalidArgument)
+		}
+		if i > 0 && (args[i-1] == "-c" || args[i-1] == "--command") {
+			return nil, fmt.Errorf("%w: shell command string arguments are not permitted", contracts.ErrInvalidArgument)
+		}
+	}
+	// Path is validated at Run with the real binary; validate args only here.
+	if err := process.ValidateArgv("tool", args); err != nil {
+		return nil, err
+	}
 	return args, nil
 }
 

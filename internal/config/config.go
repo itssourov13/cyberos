@@ -20,6 +20,14 @@ type Config struct {
 	AuthRequired bool   // production mandatory API auth (Phase 6H)
 	BootstrapKey string // optional bootstrap API key plaintext for local/dev only
 
+	// Process runtime (Phase 9A) — fail-closed by default.
+	ProcessEnabled     bool
+	ProcessAllowShell  bool
+	ProcessAllowedBins []string
+	ProcessAllowedDirs []string
+	ProcessTimeout     string // e.g. "10s"
+	ProcessMaxOutput   int64  // bytes; 0 → runner default
+
 	// SecretRefs maps logical names to secret references (env:NAME, file:path).
 	// Resolved values are obtained only via a secrets.Resolver at use sites.
 	SecretRefs map[string]secrets.Ref
@@ -28,14 +36,20 @@ type Config struct {
 // Load reads configuration from environment variables with sensible defaults.
 func Load() *Config {
 	c := &Config{
-		Env:          getEnv("CYBEROS_ENV", "development"),
-		LogLevel:     getEnv("CYBEROS_LOG_LEVEL", "info"),
-		LogFormat:    getEnv("CYBEROS_LOG_FORMAT", "json"),
-		APIAddr:      getEnv("CYBEROS_API_ADDR", ":8080"),
-		DatabaseURL:  getEnv("CYBEROS_DATABASE_URL", "postgres://cyberos:cyberos@localhost:5432/cyberos?sslmode=disable"),
-		AuthRequired: getEnvBool("CYBEROS_AUTH_REQUIRED", false),
-		BootstrapKey: getEnv("CYBEROS_BOOTSTRAP_API_KEY", ""),
-		SecretRefs:   map[string]secrets.Ref{},
+		Env:                getEnv("CYBEROS_ENV", "development"),
+		LogLevel:           getEnv("CYBEROS_LOG_LEVEL", "info"),
+		LogFormat:          getEnv("CYBEROS_LOG_FORMAT", "json"),
+		APIAddr:            getEnv("CYBEROS_API_ADDR", ":8080"),
+		DatabaseURL:        getEnv("CYBEROS_DATABASE_URL", "postgres://cyberos:cyberos@localhost:5432/cyberos?sslmode=disable"),
+		AuthRequired:       getEnvBool("CYBEROS_AUTH_REQUIRED", false),
+		BootstrapKey:       getEnv("CYBEROS_BOOTSTRAP_API_KEY", ""),
+		ProcessEnabled:     getEnvBool("CYBEROS_PROCESS_ENABLED", false),
+		ProcessAllowShell:  getEnvBool("CYBEROS_PROCESS_ALLOW_SHELL", false),
+		ProcessAllowedBins: splitCSV(getEnv("CYBEROS_PROCESS_ALLOWED_BINS", "")),
+		ProcessAllowedDirs: splitCSV(getEnv("CYBEROS_PROCESS_ALLOWED_DIRS", "")),
+		ProcessTimeout:     getEnv("CYBEROS_PROCESS_TIMEOUT", "10s"),
+		ProcessMaxOutput:   getEnvInt64("CYBEROS_PROCESS_MAX_OUTPUT_BYTES", 0),
+		SecretRefs:         map[string]secrets.Ref{},
 	}
 	// Production environment defaults to auth required unless explicitly disabled.
 	if c.Env == "production" && os.Getenv("CYBEROS_AUTH_REQUIRED") == "" {
@@ -71,10 +85,48 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
+func splitCSV(s string) []string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func getEnvInt64(key string, fallback int64) int64 {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	var n int64
+	for _, r := range v {
+		if r < '0' || r > '9' {
+			return fallback
+		}
+		n = n*10 + int64(r-'0')
+	}
+	return n
+}
+
 func getEnvBool(key string, fallback bool) bool {
 	v := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
 	if v == "" {
 		return fallback
 	}
-	return v == "1" || v == "true" || v == "yes" || v == "on"
+	switch v {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
