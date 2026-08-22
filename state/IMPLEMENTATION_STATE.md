@@ -1,15 +1,17 @@
 # CYBEROS Implementation State
 
-**Last Updated:** 2026-08-21  
-**Release:** **v0.8.0** (Phase 8 frozen)
+**Last Updated:** 2026-08-22  
+**Release:** **v0.9.0** (Phase 9 frozen)
 
-## Phase 8 — COMPLETE
-- [x] 8A Evidence + Provenance durable
-- [x] 8B Asset endpoints/observations durable
-- [x] 8C API tenant/project isolation
-- [x] 8D Bootstrap hygiene + strict persist + PG harness
-- [x] Freeze tag v0.8.0
+## Phase 9 — COMPLETE
+- [x] 9A Process policy + argv safety
+- [x] 9B Pack lifecycle / capability mapping
+- [x] 9C Constrained nmap + HTTP probe
+- [x] 9D Durable execution records + evidence completeness
+- [x] 9E Final audit
+- [x] Freeze tag **v0.9.0**
 
 ## Prior
+- Phase 8 frozen at **v0.8.0**
 - Phase 7 frozen at **v0.7.0**
 - Phase 6 frozen at **v0.6.0**

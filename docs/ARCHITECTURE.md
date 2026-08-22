@@ -304,3 +304,8 @@ Durable platform: PostgreSQL ports for findings/risk/cases/reports/API keys; `sd
 ## Phase 8 (frozen at v0.8.0)
 
 Operational hardening: durable evidence/provenance/inventory endpoints; API tenant/project isolation; bootstrap hygiene. See `docs/PHASE8.md`.
+
+
+## Phase 9 (frozen at v0.9.0)
+
+Tool runtime & pack ecosystem: process policy, pack lifecycle, constrained nmap/HTTP probe, durable execution records. See `docs/PHASE9.md`.

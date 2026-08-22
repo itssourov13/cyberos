@@ -1,9 +1,11 @@
 # Handoff
 
-**Release `v0.8.0` — Phase 8 frozen.**
+**Release `v0.9.0` — Phase 9 frozen.**
 
-Do not start Phase 9 without explicit approval.
+Do not start Phase 10 without explicit approval.
 
-Production: `CYBEROS_ENV=production` + `CYBEROS_DATABASE_URL` → `sdk.NewProduction`; mandatory auth; bootstrap via existing keys or `CYBEROS_BOOTSTRAP_API_KEY`.
+Security spine unchanged: Scope → Auth → CP → Grant → Broker → Sandbox → Executor.
 
-Live PG integration tests require a running database; otherwise they SKIP (not a durability pass).
+Process execution is fail-closed by default. Production: `CYBEROS_ENV=production` + `CYBEROS_DATABASE_URL` → `sdk.NewProduction`.
+
+Live PG integration tests require a running database; SKIP must not be reported as durability verified.

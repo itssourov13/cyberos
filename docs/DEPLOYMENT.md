@@ -87,3 +87,6 @@ Never claim PG durability verified when tests were skipped.
 
 
 **Phase 8 frozen at tag `v0.8.0`.** See `docs/PHASE8.md`.
+
+
+**Phase 9 frozen at tag `v0.9.0`.** Process: `CYBEROS_PROCESS_ENABLED` (default false), allowlist bins. See `docs/PHASE9.md`.
