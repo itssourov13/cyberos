@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"time"
 
+	"cyberos/internal/ai/apply"
+	"cyberos/internal/ai/autonomy"
 	appscope "cyberos/internal/application/scope"
 	"cyberos/internal/assessment"
 	"cyberos/internal/assets"
@@ -32,39 +34,40 @@ import (
 	"cyberos/internal/riskprio"
 	"cyberos/internal/taskengine"
 	"cyberos/internal/tools"
-	"cyberos/internal/ai/apply"
 	"cyberos/internal/workflow"
 )
 
 // Client is the SDK entrypoint. Sensitive operations always go through
 // Control Plane → Grant → Broker.
 type Client struct {
-	Identity   *identity.Service
-	Scopes     *appscope.Service
-	Caps       *capability.Registry
-	Tasks      *taskengine.Engine
-	Control    *controlplane.Service
-	Issuer     *broker.Issuer
-	Broker     *broker.Broker
-	Evidence   *evidence.Service
-	Findings   *findings.Service
-	Provenance *provenance.Service
-	Audit      *audit.Service
-	Catalog    *Catalog
-	Assessment *assessment.Orchestrator
-	Tools      *tools.Manager
-	Events     *events.Store
-	Hub        *events.Hub
-	ExecReg    *execution.Registry
-	Auth       auth.Authenticator
-	Platform   *tools.Platform
-	Assets     *assets.Inventory
-	RiskPrio   *riskprio.Engine
-	Cases      *cases.Service
-	Reports    *reports.Service
-	Lifecycle  *lifecycle.Controller  // optional durable execution jobs (Phase 9D)
-	Workflow   *workflow.Orchestrator // Phase 10B/10C orchestration
-	AIApply    *apply.Applicator      // Phase 12D plan → workflow (no execution)
+	Identity        *identity.Service
+	Scopes          *appscope.Service
+	Caps            *capability.Registry
+	Tasks           *taskengine.Engine
+	Control         *controlplane.Service
+	Issuer          *broker.Issuer
+	Broker          *broker.Broker
+	Evidence        *evidence.Service
+	Findings        *findings.Service
+	Provenance      *provenance.Service
+	Audit           *audit.Service
+	Catalog         *Catalog
+	Assessment      *assessment.Orchestrator
+	Tools           *tools.Manager
+	Events          *events.Store
+	Hub             *events.Hub
+	ExecReg         *execution.Registry
+	Auth            auth.Authenticator
+	Platform        *tools.Platform
+	Assets          *assets.Inventory
+	RiskPrio        *riskprio.Engine
+	Cases           *cases.Service
+	Reports         *reports.Service
+	Lifecycle       *lifecycle.Controller    // optional durable execution jobs (Phase 9D)
+	Workflow        *workflow.Orchestrator   // Phase 10B/10C orchestration
+	AIApply         *apply.Applicator        // Phase 12D plan → workflow (no execution)
+	Autonomy        *autonomy.Controller     // Phase 13/14 autonomy
+	AutonomyHandoff *autonomy.AdvanceHandoff // Phase 14B handoff
 }
 
 // NewInMemory constructs a client with mock broker, issuer, evidence stack,
