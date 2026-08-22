@@ -1,10 +1,10 @@
 # Handoff
 
-**Release `v0.10.0` — Phase 10 frozen.**
+**Release `v0.11.0` — Phase 11 frozen.**
 
-Do not start Phase 11 without explicit approval.
+Do not start Phase 12 without explicit approval.
 
 Security spine unchanged:
 Scope → Auth → CP → Decision → Grant → Broker → Sandbox → Executor
 
-Workflow is orchestration-only. Each step requires a fresh Grant via CP.
+Pack installation is discovery only. Process tools remain fail-closed until allowlisted.

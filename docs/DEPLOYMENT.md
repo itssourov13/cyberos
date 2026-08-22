@@ -93,3 +93,6 @@ Never claim PG durability verified when tests were skipped.
 
 
 **Phase 10 frozen at tag `v0.10.0`.** Workflow runs use migration 013; process tools still fail-closed by default.
+
+
+**Phase 11 frozen at tag `v0.11.0`.** Load pack JSON via tools.Loader; process allowlist still operator-controlled.

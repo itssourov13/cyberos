@@ -314,3 +314,8 @@ Tool runtime & pack ecosystem: process policy, pack lifecycle, constrained nmap/
 ## Phase 10 (frozen at v0.10.0)
 
 Capability-driven workflow orchestration on existing Task Engine + Lifecycle. See `docs/PHASE10.md`.
+
+
+## Phase 11 (frozen at v0.11.0)
+
+Extensible pack/manifest/schema/loader model. Install = discovery only. See `docs/PHASE11.md`.

@@ -3,13 +3,13 @@
 **Last Updated:** 2026-08-22
 
 ## Current
-**Phase 10 FROZEN** at tag **`v0.10.0`**.
+**Phase 11 FROZEN** at tag **`v0.11.0`**.
 
 ## Releases
-- `v0.7.0` — Phase 7
-- `v0.8.0` — Phase 8 operational hardening
-- `v0.9.0` — Phase 9 tool runtime
-- `v0.10.0` — Phase 10 workflow orchestration
+- `v0.8.0` — operational hardening
+- `v0.9.0` — tool runtime
+- `v0.10.0` — workflow orchestration
+- `v0.11.0` — extensible tool/pack ecosystem
 
 ## Next
-Awaiting explicit approval for Phase 11+.
+Awaiting explicit approval for Phase 12+.
