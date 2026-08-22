@@ -5,7 +5,7 @@
 | **13A** | Observe → Analyze | Done |
 | **13B** | Re-planning | Done |
 | **13C** | Autonomy policy gate | Done |
-| **13D** | Continuous assessment | Not started |
+| **13D** | Continuous assessment | Done |
 | **13E** | Freeze | Not started |
 
 ## 13A architecture
@@ -35,3 +35,13 @@ Workflow Definition → AutonomyPolicy.Evaluate → ALLOW|WAIT|DENY|STOP
 ```
 
 Policy is an eligibility gate, not authorization. MANUAL/ASSISTED always WAIT.
+
+## 13D architecture
+
+```
+AutonomyRun.Start → Observe → Analyze → Plan → Apply → Policy
+  → (MayAdvance only) external Orchestrator.Advance → CP → Grant → Broker
+RecordStepExecuted accounts budgets. Cancel/Waiting supported.
+```
+
+In-memory RunStore (process-local). No Grant issuance in autonomy layer.
