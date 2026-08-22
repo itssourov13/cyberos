@@ -15,6 +15,7 @@ type Platform struct {
 	mu      sync.RWMutex
 	manager *Manager
 	packs   *PackRegistry
+	catalog *Catalog // optional discovery catalog from pack loader (Phase 11C)
 	// status cache from last health sweep
 	status map[string]Status
 }
@@ -27,8 +28,17 @@ func NewPlatform(mgr *Manager) *Platform {
 	return &Platform{
 		manager: mgr,
 		packs:   NewPackRegistry(),
+		catalog: NewCatalog(),
 		status:  make(map[string]Status),
 	}
+}
+
+// Catalog returns the discovery-only tool catalog.
+func (p *Platform) Catalog() *Catalog {
+	if p == nil {
+		return nil
+	}
+	return p.catalog
 }
 
 // Manager returns the underlying adapter manager.
@@ -167,13 +177,29 @@ func (p *Platform) CapabilityMap() []CapabilityMapping {
 		}
 	}
 	var out []CapabilityMapping
-	for _, d := range p.manager.List() {
+	seen := map[string]struct{}{}
+	add := func(d Descriptor) {
 		pid := toolToPack[d.ID]
 		for _, cap := range d.Capabilities {
+			key := d.ID + ":" + string(cap)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
 			out = append(out, CapabilityMapping{
 				PackID: pid, ToolID: d.ID, ExecutorID: d.ExecutorID,
 				CapabilityID: cap, Version: packVer[pid],
 			})
+		}
+	}
+	if p.manager != nil {
+		for _, d := range p.manager.List() {
+			add(d)
+		}
+	}
+	if p.catalog != nil {
+		for _, d := range p.catalog.List() {
+			add(d)
 		}
 	}
 	return out
