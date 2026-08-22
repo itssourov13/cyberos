@@ -6,10 +6,13 @@ import (
 	"sync"
 	"time"
 
+	"encoding/json"
+
 	"cyberos/internal/ai"
 	"cyberos/internal/ai/aicontext"
 	"cyberos/internal/ai/apply"
 	"cyberos/internal/contracts"
+	"cyberos/internal/storage/ports"
 	"cyberos/internal/workflow"
 )
 
@@ -51,6 +54,8 @@ type AutonomyRun struct {
 	FinishedAt      time.Time                `json:"finished_at,omitempty"`
 	Definition      *workflow.Definition     `json:"-"`
 	CapabilityHints []contracts.CapabilityID `json:"capability_hints,omitempty"`
+	Version         int64                    `json:"version,omitempty"`
+	PolicyJSON      []byte                   `json:"-"`
 }
 
 // RunStore is in-memory durable-within-process store for autonomy runs.
@@ -85,6 +90,7 @@ func (s *RunStore) Get(id string) (*AutonomyRun, bool) {
 // Controller orchestrates Observe→Analyze→Plan→Policy (no Broker).
 type Controller struct {
 	Store     *RunStore
+	Repo      ports.AutonomyRunRepository // optional durable backend (14A)
 	Analyzer  *Analyzer
 	RePlanner *RePlanner
 	Now       func() time.Time
@@ -153,10 +159,10 @@ func (c *Controller) Start(ctx context.Context, req StartRequest) (*AutonomyRun,
 		run.State = RunFailed
 		run.StopReason = err.Error()
 		run.FinishedAt = c.now()
-		c.Store.Put(run)
+		c.persist(run)
 		return run, err
 	}
-	c.Store.Put(run)
+	c.persist(run)
 	return run, nil
 }
 
@@ -195,14 +201,14 @@ func (c *Controller) Advance(ctx context.Context, runID string) (*AdvanceResult,
 		run.LastDecision = string(dec.Decision)
 		run.FinishedAt = c.now()
 		run.UpdatedAt = c.now()
-		c.Store.Put(run)
+		c.persist(run)
 		return &AdvanceResult{Run: run, PolicyDecision: dec, MayAdvance: false}, nil
 	}
 	if dec.Decision == DecisionWait {
 		run.State = RunWaiting
 		run.LastDecision = string(dec.Decision)
 		run.UpdatedAt = c.now()
-		c.Store.Put(run)
+		c.persist(run)
 		return &AdvanceResult{Run: run, PolicyDecision: dec, MayAdvance: false, Definition: run.Definition}, nil
 	}
 
@@ -211,7 +217,7 @@ func (c *Controller) Advance(ctx context.Context, runID string) (*AdvanceResult,
 		run.State = RunFailed
 		run.StopReason = err.Error()
 		run.FinishedAt = c.now()
-		c.Store.Put(run)
+		c.persist(run)
 		return &AdvanceResult{Run: run, MayAdvance: false}, err
 	}
 	// Re-check policy for capability on current plan
@@ -232,7 +238,7 @@ func (c *Controller) Advance(ctx context.Context, runID string) (*AdvanceResult,
 		may = false
 	}
 	run.UpdatedAt = c.now()
-	c.Store.Put(run)
+	c.persist(run)
 	return &AdvanceResult{Run: run, PolicyDecision: dec, MayAdvance: may, Definition: run.Definition}, nil
 }
 
@@ -252,7 +258,7 @@ func (c *Controller) Cancel(runID string) (*AutonomyRun, error) {
 	run.StopReason = "operator_cancelled"
 	run.FinishedAt = c.now()
 	run.UpdatedAt = c.now()
-	c.Store.Put(run)
+	c.persist(run)
 	return run, nil
 }
 
@@ -274,7 +280,7 @@ func (c *Controller) RecordStepExecuted(runID string) error {
 	}
 	run.StepsConsumed++
 	run.UpdatedAt = c.now()
-	c.Store.Put(run)
+	c.persist(run)
 	return nil
 }
 
@@ -360,4 +366,70 @@ func (c *Controller) now() time.Time {
 		return c.Now()
 	}
 	return time.Now()
+}
+
+func (c *Controller) persist(run *AutonomyRun) {
+	c.Store.Put(run)
+	if c.Repo == nil {
+		return
+	}
+	rec := runToRecord(run)
+	ctx := context.Background()
+	if _, err := c.Repo.Get(ctx, run.ProjectID, run.ID); err != nil {
+		_ = c.Repo.Create(ctx, rec)
+		return
+	}
+	_ = c.Repo.Update(ctx, rec)
+}
+
+func runToRecord(run *AutonomyRun) ports.AutonomyRunRecord {
+	policyJSON := run.PolicyJSON
+	if policyJSON == nil {
+		policyJSON, _ = json.Marshal(run.Policy)
+	}
+	return ports.AutonomyRunRecord{
+		ID: run.ID, ProjectID: run.ProjectID, TenantID: run.TenantID, ScopeID: run.ScopeID,
+		PrincipalID: run.PrincipalID, CorrelationID: run.CorrelationID, Goal: run.Goal,
+		Mode: string(run.Policy.Mode), PolicyVersion: string(run.Policy.Version),
+		PolicyJSON: policyJSON, State: string(run.State), Iteration: run.Iteration,
+		StepsConsumed: run.StepsConsumed, AnalysisID: run.AnalysisID, PlanID: run.CurrentPlanID,
+		ParentPlanID: run.ParentPlanID, WorkflowDefID: run.WorkflowDefID,
+		LastDecision: run.LastDecision, StopReason: run.StopReason, Version: run.Version,
+		StartedAt: run.StartedAt, UpdatedAt: run.UpdatedAt, FinishedAt: run.FinishedAt,
+	}
+}
+
+// LoadFromRepo hydrates in-memory store from durable repo (restart recovery).
+func (c *Controller) LoadFromRepo(ctx context.Context, projectID contracts.ProjectID, runID string) (*AutonomyRun, error) {
+	if c.Repo == nil {
+		return c.Get(runID)
+	}
+	rec, err := c.Repo.Get(ctx, projectID, runID)
+	if err != nil {
+		return nil, err
+	}
+	run := recordToRun(rec)
+	c.Store.Put(run)
+	return run, nil
+}
+
+func recordToRun(rec ports.AutonomyRunRecord) *AutonomyRun {
+	var pol AutonomyPolicy
+	_ = json.Unmarshal(rec.PolicyJSON, &pol)
+	if pol.Mode == "" {
+		pol.Mode = AutonomyMode(rec.Mode)
+	}
+	if pol.Version == "" {
+		pol.Version = contracts.SchemaVersion(rec.PolicyVersion)
+	}
+	pol.ProjectID = rec.ProjectID
+	return &AutonomyRun{
+		ID: rec.ID, Goal: rec.Goal, ProjectID: rec.ProjectID, TenantID: rec.TenantID,
+		ScopeID: rec.ScopeID, PrincipalID: rec.PrincipalID, CorrelationID: rec.CorrelationID,
+		Policy: pol, State: RunState(rec.State), Iteration: rec.Iteration, StepsConsumed: rec.StepsConsumed,
+		CurrentPlanID: rec.PlanID, ParentPlanID: rec.ParentPlanID, AnalysisID: rec.AnalysisID,
+		WorkflowDefID: rec.WorkflowDefID, LastDecision: rec.LastDecision, StopReason: rec.StopReason,
+		StartedAt: rec.StartedAt, UpdatedAt: rec.UpdatedAt, FinishedAt: rec.FinishedAt,
+		Version: rec.Version, PolicyJSON: rec.PolicyJSON,
+	}
 }
