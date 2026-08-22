@@ -5,7 +5,7 @@
 | **12A** | Brain contract + Plan IR | Done (`c3618ec`) |
 | **12B** | Context assembly + sanitization | Done |
 | **12C** | Provider adapters | Done |
-| **12D** | Plan → workflow | Not started |
+| **12D** | Plan → workflow | Done |
 | **12E** | Freeze | Not started |
 
 ## Trust boundary (12B)

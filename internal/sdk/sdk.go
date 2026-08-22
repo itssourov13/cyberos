@@ -32,6 +32,7 @@ import (
 	"cyberos/internal/riskprio"
 	"cyberos/internal/taskengine"
 	"cyberos/internal/tools"
+	"cyberos/internal/ai/apply"
 	"cyberos/internal/workflow"
 )
 
@@ -63,6 +64,7 @@ type Client struct {
 	Reports    *reports.Service
 	Lifecycle  *lifecycle.Controller  // optional durable execution jobs (Phase 9D)
 	Workflow   *workflow.Orchestrator // Phase 10B/10C orchestration
+	AIApply    *apply.Applicator      // Phase 12D plan → workflow (no execution)
 }
 
 // NewInMemory constructs a client with mock broker, issuer, evidence stack,
@@ -106,6 +108,7 @@ func NewInMemory() *Client {
 		lifecycle.WithProvenance(c.Provenance),
 	)
 	c.WireWorkflow()
+	c.AIApply = apply.NewApplicator(nil)
 	// Phase 4A: no demo seed — catalog starts empty until RefreshFromRepos or explicit upserts.
 	return c
 }
