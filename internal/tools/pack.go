@@ -37,6 +37,9 @@ type Pack struct {
 	Description   string                   `json:"description,omitempty"`
 	ToolIDs       []string                 `json:"tool_ids"`
 	CapabilityIDs []contracts.CapabilityID `json:"capability_ids,omitempty"`
+	// ContractVersion versions the pack extension contract (not the pack product version).
+	// Empty defaults to ExtensionContractV1 for backward compatibility.
+	ContractVersion contracts.SchemaVersion `json:"contract_version,omitempty"`
 }
 
 // Validate checks pack identity, version, and state.
@@ -52,6 +55,9 @@ func (p Pack) Validate() error {
 	}
 	if p.State != "" && !p.State.Valid() {
 		return fmt.Errorf("%w: invalid pack state %q", contracts.ErrInvalidArgument, p.State)
+	}
+	if err := contracts.ValidateExtensionContract(p.ContractVersion); err != nil {
+		return err
 	}
 	return nil
 }
@@ -78,6 +84,9 @@ func (r *PackRegistry) Register(p Pack) error {
 	}
 	if p.Version == "" {
 		p.Version = "1.0.0"
+	}
+	if p.ContractVersion == "" {
+		p.ContractVersion = contracts.ExtensionContractV1
 	}
 	if err := p.Validate(); err != nil {
 		return err

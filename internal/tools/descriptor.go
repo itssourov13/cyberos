@@ -32,6 +32,8 @@ type Descriptor struct {
 	Description  string                   `json:"description,omitempty"`
 	// Binary is optional host binary name for process-backed adapters (allowlisted separately).
 	Binary string `json:"binary,omitempty"`
+	// ContractVersion versions the tool extension contract; empty defaults to V1.
+	ContractVersion contracts.SchemaVersion `json:"contract_version,omitempty"`
 }
 
 // Validate checks required descriptor fields.
@@ -43,13 +45,14 @@ func (d Descriptor) Validate() error {
 // ToolManifest maps descriptor to contracts.ToolManifest.
 func (d Descriptor) ToolManifest() contracts.ToolManifest {
 	return contracts.ToolManifest{
-		ID:           d.ID,
-		Name:         d.Name,
-		Version:      d.Version,
-		Runtime:      d.Runtime,
-		Capabilities: d.Capabilities,
-		ExecutorID:   d.ExecutorID,
-		Description:  d.Description,
+		ID:              d.ID,
+		Name:            d.Name,
+		Version:         d.Version,
+		Runtime:         d.Runtime,
+		Capabilities:    d.Capabilities,
+		ContractVersion: d.ContractVersion,
+		ExecutorID:      d.ExecutorID,
+		Description:     d.Description,
 	}
 }
 

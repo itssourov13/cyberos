@@ -29,21 +29,21 @@ func (s ExecutionLifecycleState) Valid() bool {
 // ExecutionRecord is an attributable record of one execution attempt.
 // It correlates Task → Grant → Execution and is suitable for audit/evidence.
 type ExecutionRecord struct {
-	ID            ExecutionID             `json:"id"`
-	State         ExecutionLifecycleState `json:"state"`
-	TaskID        TaskID                  `json:"task_id"`
-	GrantID       ExecutionGrantID        `json:"grant_id"`
-	Principal     PrincipalRef            `json:"principal"`
-	ProjectID     ProjectID               `json:"project_id"`
-	ScopeID       ScopeID                 `json:"scope_id"`
-	CapabilityID  CapabilityID            `json:"capability_id"`
-	Attempt       int                     `json:"attempt"`
-	StartedAt     Timestamp               `json:"started_at"`
-	FinishedAt    Timestamp               `json:"finished_at,omitempty"`
-	Duration      time.Duration           `json:"duration,omitempty"`
-	Outcome       ExecutionStatus         `json:"outcome,omitempty"`
-	FailureReason string                  `json:"failure_reason,omitempty"`
-	ExecutorID    string                  `json:"executor_id,omitempty"`
+	ID             ExecutionID             `json:"id"`
+	State          ExecutionLifecycleState `json:"state"`
+	TaskID         TaskID                  `json:"task_id"`
+	GrantID        ExecutionGrantID        `json:"grant_id"`
+	Principal      PrincipalRef            `json:"principal"`
+	ProjectID      ProjectID               `json:"project_id"`
+	ScopeID        ScopeID                 `json:"scope_id"`
+	CapabilityID   CapabilityID            `json:"capability_id"`
+	Attempt        int                     `json:"attempt"`
+	StartedAt      Timestamp               `json:"started_at"`
+	FinishedAt     Timestamp               `json:"finished_at,omitempty"`
+	Duration       time.Duration           `json:"duration,omitempty"`
+	Outcome        ExecutionStatus         `json:"outcome,omitempty"`
+	FailureReason  string                  `json:"failure_reason,omitempty"`
+	ExecutorID     string                  `json:"executor_id,omitempty"`
 	CorrelationID  CorrelationID           `json:"correlation_id,omitempty"`
 	CausationID    string                  `json:"causation_id,omitempty"`
 	IdempotencyKey string                  `json:"idempotency_key,omitempty"`

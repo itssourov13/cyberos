@@ -12,6 +12,9 @@ type ToolManifest struct {
 	ExecutorID string `json:"executor_id"`
 	// Description is human-readable metadata only.
 	Description string `json:"description,omitempty"`
+	// ContractVersion versions the manifest extension contract (not the tool product version).
+	// Empty defaults to ExtensionContractV1 for backward compatibility.
+	ContractVersion SchemaVersion `json:"contract_version,omitempty"`
 }
 
 // Validate checks required tool manifest fields.
@@ -29,6 +32,9 @@ func (m ToolManifest) Validate() error {
 		return ErrInvalidArgument
 	}
 	if err := ValidateNonEmpty("tool.version", string(m.Version)); err != nil {
+		return err
+	}
+	if err := ValidateExtensionContract(m.ContractVersion); err != nil {
 		return err
 	}
 	return nil
