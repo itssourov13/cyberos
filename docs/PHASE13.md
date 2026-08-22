@@ -4,7 +4,7 @@
 |-----------|--------|--------|
 | **13A** | Observe → Analyze | Done |
 | **13B** | Re-planning | Done |
-| **13C** | Autonomy policy gate | Not started |
+| **13C** | Autonomy policy gate | Done |
 | **13D** | Continuous assessment | Not started |
 | **13E** | Freeze | Not started |
 
@@ -25,3 +25,13 @@ AnalysisResult → RePlanRequest → Brain.Plan → ValidatePlan → Lineage →
 ```
 
 No Orchestrator.Advance, Grant, or Broker. Plan lineage records parent analysis/plan IDs.
+
+## 13C architecture
+
+```
+Workflow Definition → AutonomyPolicy.Evaluate → ALLOW|WAIT|DENY|STOP
+  → (only if ALLOW + CONTROLLED_AUTONOMOUS) existing Orchestrator.Advance
+  → CP → Grant → Broker (unchanged)
+```
+
+Policy is an eligibility gate, not authorization. MANUAL/ASSISTED always WAIT.
