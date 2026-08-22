@@ -63,6 +63,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/findings/{id}", s.handleFindingByID)
 	mux.HandleFunc("/api/v1/assessments/{id}/findings", s.handleAssessmentFindings)
 	mux.HandleFunc("/api/v1/events/stream", s.handleEventStream)
+	mux.HandleFunc("/api/v1/workflow/runs", s.ListWorkflowRuns)
+	mux.HandleFunc("/api/v1/workflow/runs/{id}", s.GetWorkflowRun)
 	// Web UI foundation (static)
 	mux.Handle("/ui/", http.StripPrefix("/ui/", uiFileServer()))
 	mux.HandleFunc("/", s.handleRoot)

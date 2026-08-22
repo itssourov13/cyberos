@@ -6,8 +6,11 @@ import (
 	"sync"
 	"time"
 
+	"encoding/json"
+
 	"cyberos/internal/contracts"
 	"cyberos/internal/execution/lifecycle"
+	"cyberos/internal/storage/ports"
 	"cyberos/internal/taskengine"
 )
 
@@ -49,8 +52,17 @@ type Orchestrator struct {
 
 	mu   sync.RWMutex
 	runs map[string]*Run
+	repo ports.WorkflowRunRepository // optional durable
 
 	Now func() time.Time
+}
+
+// WithRepository attaches durable workflow-run storage. Persist errors fail closed.
+func (o *Orchestrator) WithRepository(repo ports.WorkflowRunRepository) *Orchestrator {
+	if o != nil {
+		o.repo = repo
+	}
+	return o
 }
 
 // NewOrchestrator constructs a workflow orchestrator.
@@ -113,6 +125,9 @@ func (o *Orchestrator) Start(ctx context.Context, req StartRequest) (*Run, error
 	o.mu.Lock()
 	o.runs[run.ID] = run
 	o.mu.Unlock()
+	if err := o.persist(run); err != nil {
+		return nil, err
+	}
 	return cloneRun(run), nil
 }
 
@@ -126,7 +141,11 @@ func (o *Orchestrator) Advance(ctx context.Context, runID string, def Definition
 	run, ok := o.runs[runID]
 	if !ok {
 		o.mu.Unlock()
-		return nil, contracts.ErrNotFound
+		if _, err := o.Get(runID); err != nil {
+			return nil, err
+		}
+		o.mu.Lock()
+		run = o.runs[runID]
 	}
 	if run.State == RunStateCancelled || run.State == RunStateSucceeded || run.State == RunStateFailed {
 		cp := cloneRun(run)
@@ -187,9 +206,13 @@ func (o *Orchestrator) Advance(ctx context.Context, runID string, def Definition
 	}
 
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	o.recomputeRunState(run, def)
-	return cloneRun(run), nil
+	cp := cloneRun(run)
+	o.mu.Unlock()
+	if err := o.persist(run); err != nil {
+		return cp, err
+	}
+	return cp, nil
 }
 
 func (o *Orchestrator) executeStep(
@@ -304,27 +327,78 @@ func (o *Orchestrator) recomputeRunState(run *Run, def Definition) {
 	}
 }
 
-// Get returns a copy of a run.
+// Get returns a copy of a run (memory, then durable).
 func (o *Orchestrator) Get(runID string) (*Run, error) {
 	o.mu.RLock()
-	defer o.mu.RUnlock()
 	r, ok := o.runs[runID]
-	if !ok {
-		return nil, contracts.ErrNotFound
+	if ok {
+		cp := cloneRun(r)
+		o.mu.RUnlock()
+		return cp, nil
 	}
-	return cloneRun(r), nil
+	o.mu.RUnlock()
+	if o.repo != nil {
+		rec, err := o.repo.GetByID(context.Background(), runID)
+		if err != nil {
+			return nil, err
+		}
+		run, err := recordToRun(rec)
+		if err != nil {
+			return nil, err
+		}
+		o.mu.Lock()
+		o.runs[run.ID] = run
+		o.mu.Unlock()
+		return cloneRun(run), nil
+	}
+	return nil, contracts.ErrNotFound
+}
+
+// ListByProject returns runs for a project (isolation boundary).
+func (o *Orchestrator) ListByProject(projectID contracts.ProjectID, limit, offset int) ([]*Run, error) {
+	if o.repo != nil {
+		recs, err := o.repo.ListByProject(context.Background(), projectID, limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		var out []*Run
+		for _, rec := range recs {
+			run, err := recordToRun(rec)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, run)
+		}
+		return out, nil
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	var out []*Run
+	for _, r := range o.runs {
+		if r.ProjectID == projectID {
+			out = append(out, cloneRun(r))
+		}
+	}
+	return out, nil
 }
 
 // Cancel marks the run and remaining steps cancelled (orchestration only).
 func (o *Orchestrator) Cancel(runID string) (*Run, error) {
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	r, ok := o.runs[runID]
 	if !ok {
-		return nil, contracts.ErrNotFound
+		o.mu.Unlock()
+		// try durable load
+		if _, err := o.Get(runID); err != nil {
+			return nil, err
+		}
+		o.mu.Lock()
+		r = o.runs[runID]
 	}
 	if r.State == RunStateSucceeded || r.State == RunStateFailed {
-		return cloneRun(r), nil
+		cp := cloneRun(r)
+		o.mu.Unlock()
+		return cp, nil
 	}
 	r.State = RunStateCancelled
 	r.FinishedAt = o.Now()
@@ -333,7 +407,62 @@ func (o *Orchestrator) Cancel(runID string) (*Run, error) {
 			st.State = StepCancelled
 		}
 	}
-	return cloneRun(r), nil
+	cp := cloneRun(r)
+	o.mu.Unlock()
+	if err := o.persist(r); err != nil {
+		return cp, err
+	}
+	return cp, nil
+}
+
+func (o *Orchestrator) persist(run *Run) error {
+	if o == nil || o.repo == nil || run == nil {
+		return nil
+	}
+	rec, err := runToRecord(run)
+	if err != nil {
+		return err
+	}
+	return o.repo.Upsert(context.Background(), rec)
+}
+
+func runToRecord(run *Run) (ports.WorkflowRunRecord, error) {
+	steps, err := json.Marshal(run.Steps)
+	if err != nil {
+		return ports.WorkflowRunRecord{}, err
+	}
+	stt, err := json.Marshal(run.StepToTask)
+	if err != nil {
+		return ports.WorkflowRunRecord{}, err
+	}
+	return ports.WorkflowRunRecord{
+		ID: run.ID, WorkflowID: run.WorkflowID, Version: string(run.Version),
+		ProjectID: run.ProjectID, ScopeID: run.ScopeID, PrincipalID: run.PrincipalID,
+		State: string(run.State), CorrelationID: string(run.CorrelationID),
+		Error: run.Error, StartedAt: run.StartedAt, FinishedAt: run.FinishedAt,
+		StepsJSON: steps, StepToTaskJSON: stt,
+	}, nil
+}
+
+func recordToRun(rec ports.WorkflowRunRecord) (*Run, error) {
+	run := &Run{
+		ID: rec.ID, WorkflowID: rec.WorkflowID, Version: contracts.SchemaVersion(rec.Version),
+		ProjectID: rec.ProjectID, ScopeID: rec.ScopeID, PrincipalID: rec.PrincipalID,
+		State: RunState(rec.State), CorrelationID: contracts.CorrelationID(rec.CorrelationID),
+		Error: rec.Error, StartedAt: rec.StartedAt, FinishedAt: rec.FinishedAt,
+		Steps: map[string]*StepStatus{}, StepToTask: map[string]contracts.TaskID{},
+	}
+	if len(rec.StepsJSON) > 0 {
+		if err := json.Unmarshal(rec.StepsJSON, &run.Steps); err != nil {
+			return nil, err
+		}
+	}
+	if len(rec.StepToTaskJSON) > 0 {
+		if err := json.Unmarshal(rec.StepToTaskJSON, &run.StepToTask); err != nil {
+			return nil, err
+		}
+	}
+	return run, nil
 }
 
 func cloneRun(r *Run) *Run {

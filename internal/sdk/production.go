@@ -117,7 +117,6 @@ func NewProduction(ctx context.Context, cfg *config.Config, migrationsDir string
 		lifecycle.WithAudit(c.Audit),
 		lifecycle.WithRepository(repos.Executions),
 	)
-
 	return &Production{Client: c, DB: db, Auth: authenticator, Keys: keyStore}, nil
 }
 

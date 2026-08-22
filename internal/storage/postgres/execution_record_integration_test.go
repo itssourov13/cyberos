@@ -33,7 +33,7 @@ func TestPhase9D_ExecutionRecordDurability(t *testing.T) {
 	g := contracts.ExecutionGrant{
 		ID: "g-9d", TaskID: "t-9d", ProjectID: "p-9d", ScopeID: "s-9d", CapabilityID: "cap-1",
 		Principal: contracts.PrincipalRef{ID: "u1", Type: contracts.PrincipalTypeHuman},
-		Status: contracts.ExecutionGrantStatusIssued, IssuedAt: now, ExpiresAt: now.Add(time.Hour),
+		Status:    contracts.ExecutionGrantStatusIssued, IssuedAt: now, ExpiresAt: now.Add(time.Hour),
 		Nonce: "n-9d", CorrelationID: "corr-9d",
 	}
 	out, err := ctrl.Run(lifecycle.RunRequest{Grant: g, IdempotencyKey: "idem-9d", CorrelationID: "corr-9d"})

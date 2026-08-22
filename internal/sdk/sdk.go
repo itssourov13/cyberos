@@ -32,6 +32,7 @@ import (
 	"cyberos/internal/riskprio"
 	"cyberos/internal/taskengine"
 	"cyberos/internal/tools"
+	"cyberos/internal/workflow"
 )
 
 // Client is the SDK entrypoint. Sensitive operations always go through
@@ -60,7 +61,8 @@ type Client struct {
 	RiskPrio   *riskprio.Engine
 	Cases      *cases.Service
 	Reports    *reports.Service
-	Lifecycle  *lifecycle.Controller // optional durable execution jobs (Phase 9D)
+	Lifecycle  *lifecycle.Controller  // optional durable execution jobs (Phase 9D)
+	Workflow   *workflow.Orchestrator // Phase 10B/10C orchestration
 }
 
 // NewInMemory constructs a client with mock broker, issuer, evidence stack,

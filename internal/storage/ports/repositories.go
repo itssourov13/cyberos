@@ -109,6 +109,32 @@ type AssessmentRepository interface {
 }
 
 // Repositories aggregates all repository ports for convenient wiring.
+// WorkflowRunRecord is the durable form of a workflow.Run (Phase 10C).
+type WorkflowRunRecord struct {
+	ID             string
+	WorkflowID     string
+	Version        string
+	ProjectID      contracts.ProjectID
+	ScopeID        contracts.ScopeID
+	PrincipalID    contracts.PrincipalID
+	TenantID       contracts.TenantID
+	State          string
+	CorrelationID  string
+	CausationID    string
+	Error          string
+	StartedAt      time.Time
+	FinishedAt     time.Time
+	StepsJSON      []byte // serialized step map
+	StepToTaskJSON []byte
+}
+
+// WorkflowRunRepository persists workflow runs and step status (orchestration only).
+type WorkflowRunRepository interface {
+	Upsert(ctx context.Context, r WorkflowRunRecord) error
+	GetByID(ctx context.Context, id string) (WorkflowRunRecord, error)
+	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]WorkflowRunRecord, error)
+}
+
 type Repositories struct {
 	Projects     ProjectRepository
 	Assets       AssetRepository
@@ -126,6 +152,7 @@ type Repositories struct {
 	Evidence     EvidenceRepository
 	Provenance   ProvenanceRepository
 	Executions   ExecutionRecordRepository
+	WorkflowRuns WorkflowRunRepository
 }
 
 // FindingRepository persists security findings (Phase 7A). Persistence only — not authorization.
@@ -227,7 +254,6 @@ type ProvenanceRepository interface {
 	Get(ctx context.Context, subjectType, subjectID string) (*provenance.Provenance, error)
 	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]*provenance.Provenance, error)
 }
-
 
 // ExecutionRecordRepository persists tool execution lifecycle records (Phase 9D).
 // Persistence is not authorization; Broker remains the sole execution gateway.
