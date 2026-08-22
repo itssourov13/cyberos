@@ -1,23 +1,42 @@
-# Phase 12 — AI Brain (in progress)
+# Phase 12 — Provider-Neutral AI Brain (**FROZEN** at `v0.12.0`)
 
 | Sub-phase | Focus | Status |
 |-----------|--------|--------|
-| **12A** | Brain contract + Plan IR | Done (`c3618ec`) |
+| **12A** | Brain contract + Plan IR | Done |
 | **12B** | Context assembly + sanitization | Done |
-| **12C** | Provider adapters | Done |
-| **12D** | Plan → workflow | Done |
-| **12E** | Freeze | Not started |
+| **12C** | OpenAI-compatible / local HTTP adapters | Done |
+| **12D** | Plan applicator + session provenance | Done |
+| **12E** | Final audit + freeze | Done |
 
-## Trust boundary (12B)
+## Architecture
 
 ```
-CYBEROS data → Assembler (isolation) → Redactor → AIContext → future Brain adapter
+Human/API → Brain (untrusted) → Plan IR → Validate → Accept
+  → Applicator → Workflow Definition → [STOP]
+Operator Advance → CP → Grant → Broker → Sandbox → Executor
+  → Evidence → Findings → AIContext → future re-plan
 ```
 
-AIContext is data only. No path to Grant/Broker/Executor.
-Secret values never enter context; tool/evidence content is `trust: untrusted`.
+**Sole execution path:** Scope → Auth → CP → Decision → Grant → Broker → Sandbox → Executor
 
-## 12C Providers
-- `openai_compatible` / `local_http` HTTP adapters (configurable BaseURL+model)
-- Credentials via `secrets.Ref` only
-- Provider output validated as Plan IR (12A); never executes tools
+## Invariants
+
+- AI ≠ authorization / Grant / Broker / Executor
+- Plans are capability-first; no shell/paths/binaries
+- Apply requires explicit acceptance; does not execute
+- Context: project/tenant isolation + secret redaction + untrusted evidence
+- Credentials: secret references only
+
+## Limitations (honest)
+
+| Item | Classification |
+|------|----------------|
+| AI session/plan provenance in-memory | Product/durability |
+| Live PG AI tables | Not implemented |
+| Autonomous re-plan loop | Phase 13 |
+| External JARVIS product | Future |
+| Model routing | Future |
+
+## JARVIS/Zoya
+
+External brains authenticate via API/SDK as principals, submit plans, and never gain internal Broker access.

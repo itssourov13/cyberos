@@ -319,3 +319,8 @@ Capability-driven workflow orchestration on existing Task Engine + Lifecycle. Se
 ## Phase 11 (frozen at v0.11.0)
 
 Extensible pack/manifest/schema/loader model. Install = discovery only. See `docs/PHASE11.md`.
+
+
+## Phase 12 (frozen at v0.12.0)
+
+Provider-neutral Brain → Plan IR → Applicator → Workflow. AI has no execution authority. See `docs/PHASE12.md`.

@@ -96,3 +96,6 @@ Never claim PG durability verified when tests were skipped.
 
 
 **Phase 11 frozen at tag `v0.11.0`.** Load pack JSON via tools.Loader; process allowlist still operator-controlled.
+
+
+**Phase 12 frozen at tag `v0.12.0`.** LLM providers optional; configure BaseURL + secret refs. Process tools remain fail-closed.
