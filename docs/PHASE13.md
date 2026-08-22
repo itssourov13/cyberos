@@ -1,47 +1,50 @@
-# Phase 13 — Controlled Autonomous Cyber Operations (in progress)
+# Phase 13 — Controlled Autonomous Cyber Operations (**FROZEN** at `v0.13.0`)
 
 | Sub-phase | Focus | Status |
 |-----------|--------|--------|
 | **13A** | Observe → Analyze | Done |
-| **13B** | Re-planning | Done |
-| **13C** | Autonomy policy gate | Done |
-| **13D** | Continuous assessment | Done |
-| **13E** | Freeze | Not started |
+| **13B** | Re-plan → Validate → Apply → Definition | Done |
+| **13C** | Autonomy policy gate (MANUAL/ASSISTED/CONTROLLED) | Done |
+| **13D** | Continuous AutonomyRun controller | Done |
+| **13E** | Final audit + freeze | Done |
 
-## 13A architecture
-
-```
-ObservationRequest → AIContext (12B) → Brain.Analyze → AnalysisResult (untrusted) → STOP
-```
-
-No Grant, Broker, Orchestrator.Advance, or process execution.
-
-AnalysisResult.Trust is always `untrusted`. Recommended capabilities are IDs only.
-
-## 13B architecture
+## Architecture
 
 ```
-AnalysisResult → RePlanRequest → Brain.Plan → ValidatePlan → Lineage → (optional AcceptApply) Applicator → Workflow Definition → STOP
+Human/API/Future JARVIS
+        ↓
+   AI Brain (untrusted Analyze/Plan)
+        ↓
+   Plan IR / AnalysisResult
+        ↓
+   Autonomy Policy (eligibility only)
+        ↓
+   Workflow Orchestrator
+        ↓
+   CP → Decision → Grant → Broker → Sandbox → Executor
+        ↓
+   Evidence → AIContext → Re-plan (bounded)
 ```
 
-No Orchestrator.Advance, Grant, or Broker. Plan lineage records parent analysis/plan IDs.
+**13D boundary:** `Controller.Advance` returns `MayAdvance`; it does **not** call Orchestrator, GrantIssuer, or Broker. Callers must invoke the existing Orchestrator for actual step execution.
 
-## 13C architecture
+## Modes
 
-```
-Workflow Definition → AutonomyPolicy.Evaluate → ALLOW|WAIT|DENY|STOP
-  → (only if ALLOW + CONTROLLED_AUTONOMOUS) existing Orchestrator.Advance
-  → CP → Grant → Broker (unchanged)
-```
+| Mode | Behavior |
+|------|----------|
+| MANUAL | Plan/Definition only; WAIT — no auto-advance |
+| ASSISTED | Same — WAIT for operator |
+| CONTROLLED_AUTONOMOUS | ALLOW only if policy budgets/caps pass |
 
-Policy is an eligibility gate, not authorization. MANUAL/ASSISTED always WAIT.
+## Security kernel (unchanged)
 
-## 13D architecture
+Scope → Auth → CP → Decision → Grant → Broker → Sandbox → Executor
 
-```
-AutonomyRun.Start → Observe → Analyze → Plan → Apply → Policy
-  → (MayAdvance only) external Orchestrator.Advance → CP → Grant → Broker
-RecordStepExecuted accounts budgets. Cancel/Waiting supported.
-```
+AI ≠ authorization. Policy ≠ Grant. Discovery ≠ authorization.
 
-In-memory RunStore (process-local). No Grant issuance in autonomy layer.
+## Limitations
+
+1. AutonomyRun persistence is **in-memory** (process-local).
+2. Live PostgreSQL autonomy durability **not verified**.
+3. External JARVIS/Zoya product, remote workers, marketplace — **future**.
+4. Full E2E auto-loop wiring Orchestrator inside Controller — intentional boundary (eligibility only).

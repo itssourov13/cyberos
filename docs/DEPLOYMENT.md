@@ -99,3 +99,6 @@ Never claim PG durability verified when tests were skipped.
 
 
 **Phase 12 frozen at tag `v0.12.0`.** LLM providers optional; configure BaseURL + secret refs. Process tools remain fail-closed.
+
+
+**Phase 13 frozen at tag `v0.13.0`.** AutonomyRun is in-process; configure Brain providers via secret refs. Process tools remain fail-closed.

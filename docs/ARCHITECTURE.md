@@ -324,3 +324,8 @@ Extensible pack/manifest/schema/loader model. Install = discovery only. See `doc
 ## Phase 12 (frozen at v0.12.0)
 
 Provider-neutral Brain → Plan IR → Applicator → Workflow. AI has no execution authority. See `docs/PHASE12.md`.
+
+
+## Phase 13 (frozen at v0.13.0)
+
+Controlled autonomy: Observe→Analyze→Plan→Policy→Orchestrator→CP→Grant→Broker. AI untrusted; policy is eligibility only. See `docs/PHASE13.md`.
