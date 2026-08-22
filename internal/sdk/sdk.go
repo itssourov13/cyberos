@@ -112,6 +112,7 @@ func NewInMemory() *Client {
 	)
 	c.WireWorkflow()
 	c.AIApply = apply.NewApplicator(nil)
+	c.WireAutonomy(nil)
 	// Phase 4A: no demo seed — catalog starts empty until RefreshFromRepos or explicit upserts.
 	return c
 }
