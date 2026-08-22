@@ -1,11 +1,10 @@
 # Handoff
 
-**Release `v0.9.0` — Phase 9 frozen.**
+**Release `v0.10.0` — Phase 10 frozen.**
 
-Do not start Phase 10 without explicit approval.
+Do not start Phase 11 without explicit approval.
 
-Security spine unchanged: Scope → Auth → CP → Grant → Broker → Sandbox → Executor.
+Security spine unchanged:
+Scope → Auth → CP → Decision → Grant → Broker → Sandbox → Executor
 
-Process execution is fail-closed by default. Production: `CYBEROS_ENV=production` + `CYBEROS_DATABASE_URL` → `sdk.NewProduction`.
-
-Live PG integration tests require a running database; SKIP must not be reported as durability verified.
+Workflow is orchestration-only. Each step requires a fresh Grant via CP.

@@ -90,3 +90,6 @@ Never claim PG durability verified when tests were skipped.
 
 
 **Phase 9 frozen at tag `v0.9.0`.** Process: `CYBEROS_PROCESS_ENABLED` (default false), allowlist bins. See `docs/PHASE9.md`.
+
+
+**Phase 10 frozen at tag `v0.10.0`.** Workflow runs use migration 013; process tools still fail-closed by default.

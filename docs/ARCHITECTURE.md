@@ -309,3 +309,8 @@ Operational hardening: durable evidence/provenance/inventory endpoints; API tena
 ## Phase 9 (frozen at v0.9.0)
 
 Tool runtime & pack ecosystem: process policy, pack lifecycle, constrained nmap/HTTP probe, durable execution records. See `docs/PHASE9.md`.
+
+
+## Phase 10 (frozen at v0.10.0)
+
+Capability-driven workflow orchestration on existing Task Engine + Lifecycle. See `docs/PHASE10.md`.
