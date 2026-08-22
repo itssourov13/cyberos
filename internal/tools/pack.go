@@ -40,6 +40,8 @@ type Pack struct {
 	// ContractVersion versions the pack extension contract (not the pack product version).
 	// Empty defaults to ExtensionContractV1 for backward compatibility.
 	ContractVersion contracts.SchemaVersion `json:"contract_version,omitempty"`
+	// Ops is optional runtime/dependency/config/secret metadata (Phase 11D).
+	Ops *OpsMeta `json:"ops,omitempty"`
 }
 
 // Validate checks pack identity, version, and state.
@@ -58,6 +60,11 @@ func (p Pack) Validate() error {
 	}
 	if err := contracts.ValidateExtensionContract(p.ContractVersion); err != nil {
 		return err
+	}
+	if p.Ops != nil {
+		if err := p.Ops.Validate(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

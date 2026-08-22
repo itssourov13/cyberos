@@ -30,6 +30,7 @@ type PackTool struct {
 	Capabilities    []contracts.CapabilityID `json:"capabilities,omitempty"`
 	ContractVersion contracts.SchemaVersion  `json:"contract_version,omitempty"`
 	Schemas         *schema.ToolSchemas      `json:"schemas,omitempty"`
+	Ops             *OpsMeta                 `json:"ops,omitempty"`
 }
 
 // Validate checks pack file structure without executing anything.
@@ -49,6 +50,11 @@ func (f PackFile) Validate() error {
 		d := t.Descriptor()
 		if err := d.Validate(); err != nil {
 			return fmt.Errorf("tools[%d]: %w", i, err)
+		}
+		if t.Ops != nil {
+			if err := t.Ops.Validate(); err != nil {
+				return fmt.Errorf("tools[%d].ops: %w", i, err)
+			}
 		}
 		if _, ok := seen[t.ID]; ok {
 			return fmt.Errorf("%w: duplicate tool id %q", contracts.ErrInvalidArgument, t.ID)

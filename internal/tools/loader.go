@@ -109,6 +109,19 @@ func (l *Loader) InstallPackFile(pf PackFile) (*InstallResult, error) {
 	if err := pf.Validate(); err != nil {
 		return nil, err
 	}
+	// Dependency check against already-installed packs/tools (no download).
+	if pf.Pack.Ops != nil {
+		if err := CheckDependencies(l.Platform, pf.Pack.Ops.Dependencies); err != nil {
+			return nil, err
+		}
+	}
+	for _, t := range pf.Tools {
+		if t.Ops != nil {
+			if err := CheckDependencies(l.Platform, t.Ops.Dependencies); err != nil {
+				return nil, err
+			}
+		}
+	}
 	pack := pf.Pack
 	if pack.State == "" {
 		pack.State = PackStateRegistered
