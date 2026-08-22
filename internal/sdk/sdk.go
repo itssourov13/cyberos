@@ -105,6 +105,7 @@ func NewInMemory() *Client {
 		lifecycle.WithFindings(c.Findings),
 		lifecycle.WithProvenance(c.Provenance),
 	)
+	c.WireWorkflow()
 	// Phase 4A: no demo seed — catalog starts empty until RefreshFromRepos or explicit upserts.
 	return c
 }
@@ -159,6 +160,74 @@ func (c *Client) WireAssessment() *Client {
 	})
 	c.Assessment = orch
 	return c
+}
+
+// WireWorkflow attaches Materializer + Orchestrator using Tasks, Platform, Lifecycle.
+// Step authorization uses IssueGrant (CP → Decision → Grant) per step — no grant caching.
+func (c *Client) WireWorkflow() *Client {
+	if c == nil {
+		return c
+	}
+	if c.Tasks == nil {
+		c.Tasks = taskengine.NewEngine(nil, c.Identity, c.Scopes, c.Caps)
+	}
+	if c.Platform == nil && c.Tools != nil {
+		c.Platform = tools.NewPlatform(c.Tools)
+	}
+	if c.Lifecycle == nil || c.Platform == nil {
+		return c
+	}
+	mat := workflow.NewMaterializer(c.Tasks, workflow.NewCapabilityResolver(c.Platform))
+	auth := workflow.FuncAuthorizer{Fn: func(ctx context.Context, req workflow.AuthorizeStepRequest) (contracts.ExecutionGrant, error) {
+		if c.Control == nil || c.Issuer == nil {
+			return contracts.ExecutionGrant{}, fmt.Errorf("%w: control/issuer required for workflow steps", contracts.ErrInvalidArgument)
+		}
+		g, d, err := c.Issuer.IssueAfterEvaluate(ctx, c.Control, controlplane.EvaluateRequest{
+			PrincipalID: req.PrincipalID, ProjectID: req.ProjectID, ScopeID: req.ScopeID,
+			TaskID: req.TaskID, CapabilityID: req.CapabilityID, CorrelationID: req.CorrelationID,
+		})
+		if err != nil {
+			return contracts.ExecutionGrant{}, err
+		}
+		if !d.Allowed() {
+			return contracts.ExecutionGrant{}, fmt.Errorf("%w: %s", contracts.ErrForbidden, d.Reason)
+		}
+		return g.ExecutionGrant, nil
+	}}
+	c.Workflow = workflow.NewOrchestrator(mat, c.Tasks, c.Lifecycle, auth)
+	return c
+}
+
+// StartWorkflow materializes and registers a run (orchestration only).
+func (c *Client) StartWorkflow(ctx context.Context, def workflow.Definition, principalID contracts.PrincipalID, runID string) (*workflow.Run, error) {
+	if c == nil || c.Workflow == nil {
+		return nil, fmt.Errorf("%w: workflow not configured", contracts.ErrInvalidArgument)
+	}
+	return c.Workflow.Start(ctx, workflow.StartRequest{Definition: def, PrincipalID: principalID, RunID: runID})
+}
+
+// AdvanceWorkflow runs ready steps through CP → Grant → Lifecycle (fresh grant each step).
+func (c *Client) AdvanceWorkflow(ctx context.Context, runID string, def workflow.Definition) (*workflow.Run, error) {
+	if c == nil || c.Workflow == nil {
+		return nil, fmt.Errorf("%w: workflow not configured", contracts.ErrInvalidArgument)
+	}
+	return c.Workflow.Advance(ctx, runID, def)
+}
+
+// CancelWorkflow cancels a run (orchestration only).
+func (c *Client) CancelWorkflow(runID string) (*workflow.Run, error) {
+	if c == nil || c.Workflow == nil {
+		return nil, fmt.Errorf("%w: workflow not configured", contracts.ErrInvalidArgument)
+	}
+	return c.Workflow.Cancel(runID)
+}
+
+// GetWorkflowRun returns durable/memory run state.
+func (c *Client) GetWorkflowRun(runID string) (*workflow.Run, error) {
+	if c == nil || c.Workflow == nil {
+		return nil, fmt.Errorf("%w: workflow not configured", contracts.ErrInvalidArgument)
+	}
+	return c.Workflow.Get(runID)
 }
 
 // Evaluate runs the Control Plane decision chain.

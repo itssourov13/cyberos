@@ -25,6 +25,7 @@ import (
 	"cyberos/internal/reports"
 	"cyberos/internal/riskprio"
 	"cyberos/internal/storage/postgres"
+	"cyberos/internal/taskengine"
 	"cyberos/internal/tools"
 )
 
@@ -117,6 +118,11 @@ func NewProduction(ctx context.Context, cfg *config.Config, migrationsDir string
 		lifecycle.WithAudit(c.Audit),
 		lifecycle.WithRepository(repos.Executions),
 	)
+	c.Tasks = taskengine.NewEngine(repos.Tasks, idSvc, scSvc, c.Caps)
+	c.WireWorkflow()
+	if c.Workflow != nil && repos.WorkflowRuns != nil {
+		c.Workflow.WithRepository(repos.WorkflowRuns)
+	}
 	return &Production{Client: c, DB: db, Auth: authenticator, Keys: keyStore}, nil
 }
 
