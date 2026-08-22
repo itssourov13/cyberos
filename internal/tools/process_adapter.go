@@ -38,7 +38,14 @@ func NewProcessToolAdapter(d Descriptor, proc *process.Runner) (*ProcessToolAdap
 		proc = process.NewRunner(process.DefaultPolicy())
 	}
 	a := &ProcessToolAdapter{desc: d, proc: proc, VersionArgs: []string{"--version"}}
-	a.BuildArgs = defaultBuildArgs
+	if d.Schemas != nil && d.Schemas.Argv != nil {
+		schemas := d.Schemas
+		a.BuildArgs = func(_ contracts.CapabilityID, params map[string]any) ([]string, error) {
+			return schemas.BuildArgs(params)
+		}
+	} else {
+		a.BuildArgs = defaultBuildArgs
+	}
 	a.Parse = defaultParse(d.ID)
 	return a, nil
 }

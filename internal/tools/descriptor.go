@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cyberos/internal/contracts"
+	"cyberos/internal/tools/schema"
 )
 
 // HealthStatus reports adapter readiness.
@@ -34,12 +35,23 @@ type Descriptor struct {
 	Binary string `json:"binary,omitempty"`
 	// ContractVersion versions the tool extension contract; empty defaults to V1.
 	ContractVersion contracts.SchemaVersion `json:"contract_version,omitempty"`
+	// Schemas are optional declarative parameter/argv/output schemas (Phase 11B).
+	// Discovery/validation only — never authorization.
+	Schemas *schema.ToolSchemas `json:"schemas,omitempty"`
 }
 
 // Validate checks required descriptor fields.
 func (d Descriptor) Validate() error {
 	m := d.ToolManifest()
-	return m.Validate()
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	if d.Schemas != nil {
+		if err := d.Schemas.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ToolManifest maps descriptor to contracts.ToolManifest.
