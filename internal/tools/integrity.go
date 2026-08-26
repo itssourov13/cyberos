@@ -11,6 +11,11 @@ import (
 	"cyberos/internal/contracts"
 )
 
+func sha256Hex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
 // DigestPrefix is the algorithm prefix for pack content digests (Phase 18A).
 const DigestPrefix = "sha256:"
 
@@ -60,6 +65,10 @@ func CanonicalBytes(f PackFile) ([]byte, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
 	}
+	// ContentDigest and Signature are verification metadata, not content.
+	// Excluding them avoids circular digests and matches SIGNED_BYTES design.
+	f.Pack.ContentDigest = ""
+	f.Signature = nil
 	// Normalize defaults so empty format_version matches PackFormatV1.
 	if f.FormatVersion == "" {
 		f.FormatVersion = PackFormatV1
@@ -166,8 +175,7 @@ func Digest(f PackFile) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(b)
-	return DigestPrefix + hex.EncodeToString(sum[:]), nil
+	return DigestPrefix + sha256Hex(b), nil
 }
 
 // Identity returns content-bound PackIdentity for f.

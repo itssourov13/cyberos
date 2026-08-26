@@ -67,6 +67,9 @@ func (c *Catalog) removeIDs(ids []string) {
 type Loader struct {
 	Platform *Platform
 	Catalog  *Catalog
+	// SignerKeys and VerifyMode are optional Phase 18B verification (not authorization).
+	SignerKeys *SignerKeyRegistry
+	VerifyMode VerificationMode
 }
 
 // NewLoader constructs a pack loader. If cat is nil, the platform catalog is used.
@@ -109,9 +112,28 @@ func (l *Loader) InstallPackFile(pf PackFile) (*InstallResult, error) {
 	if err := pf.Validate(); err != nil {
 		return nil, err
 	}
-	// Phase 18A: fail closed if declared content_digest mismatches canonical digest.
-	if err := VerifyDigest(pf, pf.Pack.ContentDigest); err != nil {
-		return nil, err
+	// Phase 18A/18B: integrity/signature verification (not authorization).
+	mode := l.VerifyMode
+	if mode == "" {
+		mode = VerifyLegacy
+	}
+	if mode == VerifyLegacy {
+		if err := VerifyDigest(pf, pf.Pack.ContentDigest); err != nil {
+			// VerifyDigest compares including legacy path; recompute without meta fields
+			tmp := pf
+			tmp.Pack.ContentDigest = ""
+			tmp.Signature = nil
+			if pf.Pack.ContentDigest != "" {
+				if err2 := VerifyDigest(tmp, pf.Pack.ContentDigest); err2 != nil {
+					return nil, err2
+				}
+			}
+		}
+	} else {
+		res := VerifyPack(pf, l.SignerKeys, mode)
+		if !res.Valid {
+			return nil, fmt.Errorf("%w: pack verification failed: %s", contracts.ErrInvalidArgument, res.Reason)
+		}
 	}
 	// Dependency check against already-installed packs/tools (no download).
 	if pf.Pack.Ops != nil {

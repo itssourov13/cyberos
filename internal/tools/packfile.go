@@ -16,6 +16,8 @@ type PackFile struct {
 	FormatVersion contracts.SchemaVersion `json:"format_version"`
 	Pack          Pack                    `json:"pack"`
 	Tools         []PackTool              `json:"tools,omitempty"`
+	// Signature is optional Ed25519 verification metadata (Phase 18B). Not a private key.
+	Signature *PackSignature `json:"signature,omitempty"`
 }
 
 // PackTool is a declarative tool entry inside a pack file.

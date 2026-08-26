@@ -32,3 +32,29 @@ Signing, key registry, trust tiers, revocation, marketplace, Grant/Broker change
 ### Future
 - **18B** — signature + signer verification over the same canonical bytes
 - **18C** — trust / revocation policy
+
+## 18B — Signing & Verification (COMPLETE)
+
+### Cryptography
+- **Ed25519** (`crypto/ed25519`)
+- Signed message: `CYBEROS-PACK-SIG-V1\n` || `CanonicalBytes(pack)`
+- Signature encoding: **base64.StdEncoding** (64-byte sig)
+- `SIGNED_BYTES` exclude `content_digest` and `signature` (no circular hash)
+
+### Key registry
+- `SignerKeyRegistry`: Register (no replace), Get, Disable
+- Pack **cannot** register its own trust anchor
+- DISABLED / UNKNOWN key → verification **FAIL**
+
+### Verification modes
+| Mode | Behavior |
+|------|----------|
+| LEGACY | undigested/unsigned OK; not reported signed |
+| DIGEST_ONLY | content_digest required + match |
+| SIGNED_REQUIRED | active key + valid signature |
+
+### Semantics
+**Signature ≠ trust ≠ authorization.** No Pack → Grant/Broker path.
+
+### NOT in 18B
+Trust tiers, full revocation, CP integration, marketplace, key rotation product
