@@ -8,6 +8,9 @@ type ExecutionRequest struct {
 	Parameters map[string]any `json:"parameters,omitempty"`
 	// CorrelationID should match or continue the grant's correlation chain.
 	CorrelationID CorrelationID `json:"correlation_id,omitempty"`
+	// HostID is an optional logical host identifier (e.g. "local").
+	// It is NOT a URL or network endpoint; only allowlisted IDs resolve.
+	HostID string `json:"host_id,omitempty"`
 }
 
 // Validate checks that a grant is present and structurally valid.
@@ -52,6 +55,8 @@ type ExecutionResult struct {
 	// ExecutorID identifies which executor implementation produced the result
 	// (e.g. "mock", "sandbox-go", future plugin names).
 	ExecutorID string `json:"executor_id,omitempty"`
+	// HostID echoes the logical execution host that produced the result.
+	HostID string `json:"host_id,omitempty"`
 }
 
 // Validate performs basic structural checks.

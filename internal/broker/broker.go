@@ -8,12 +8,18 @@ import (
 
 	"cyberos/internal/contracts"
 	domaingrant "cyberos/internal/domain/grant"
+	"cyberos/internal/execution"
 )
 
 // Broker is the sole execution gateway of CYBEROS.
 // All execution must pass through a validated ExecutionGrant.
+//
+// Phase 17A: after Grant validation, Broker resolves an allowlisted
+// ExecutionHost (default: local) and dispatches. Host selection is NOT
+// authorization and cannot bypass Grant checks.
 type Broker struct {
-	executor contracts.Executor
+	executor contracts.Executor // legacy direct path when Hosts is nil
+	Hosts    *execution.HostRegistry
 	// usedNonces provides basic replay protection within process lifetime.
 	mu         sync.Mutex
 	usedNonces map[string]time.Time
@@ -22,26 +28,43 @@ type Broker struct {
 }
 
 // New constructs a Tool Broker with the given executor (must be non-nil).
+// Registers a LocalHost wrapping the executor as the default host.
 func New(executor contracts.Executor) *Broker {
+	reg := execution.NewHostRegistry()
+	_ = reg.Register(execution.NewLocalHost(executor))
 	return &Broker{
 		executor:   executor,
+		Hosts:      reg,
 		usedNonces: make(map[string]time.Time),
 		Now:        func() time.Time { return time.Now().UTC() },
 	}
 }
 
-// Execute validates the grant and dispatches to the executor.
+// NewWithHosts constructs a Broker that routes only through the provided registry.
+// The registry must already contain a default host (typically LocalHost).
+func NewWithHosts(hosts *execution.HostRegistry) *Broker {
+	return &Broker{
+		Hosts:      hosts,
+		usedNonces: make(map[string]time.Time),
+		Now:        func() time.Time { return time.Now().UTC() },
+	}
+}
+
+// Execute validates the grant and dispatches to an allowlisted ExecutionHost.
 //
 // Invariant: NO VALID GRANT ⇒ NO EXECUTION
 func (b *Broker) Execute(req contracts.ExecutionRequest) (contracts.ExecutionResult, error) {
-	if b == nil || b.executor == nil {
+	if b == nil {
+		return rejected("broker not configured"), fmt.Errorf("%w: broker not configured", contracts.ErrInvalidArgument)
+	}
+	if b.Hosts == nil && b.executor == nil {
 		return rejected("broker not configured"), fmt.Errorf("%w: broker not configured", contracts.ErrInvalidArgument)
 	}
 
 	now := b.Now()
 	g := &domaingrant.Grant{ExecutionGrant: req.Grant}
 
-	// Structural + temporal validation
+	// Structural + temporal validation (Broker authority — NOT host)
 	if err := g.Validate(); err != nil {
 		return rejected("invalid grant: " + err.Error()), fmt.Errorf("%w: %v", contracts.ErrGrantInvalid, err)
 	}
@@ -52,8 +75,6 @@ func (b *Broker) Execute(req contracts.ExecutionRequest) (contracts.ExecutionRes
 		return rejected("grant expired"), contracts.ErrGrantExpired
 	}
 
-	// Context consistency (principal/task/capability/scope/project)
-	// When the request carries correlation metadata we still require grant fields.
 	if err := g.EnsureUsable(now,
 		g.Principal.ID,
 		g.ProjectID,
@@ -64,7 +85,7 @@ func (b *Broker) Execute(req contracts.ExecutionRequest) (contracts.ExecutionRes
 		return rejected(err.Error()), err
 	}
 
-	// Replay protection via nonce
+	// Replay protection via nonce (Broker-level only)
 	if g.Nonce != "" {
 		b.mu.Lock()
 		if _, seen := b.usedNonces[g.Nonce]; seen {
@@ -75,17 +96,27 @@ func (b *Broker) Execute(req contracts.ExecutionRequest) (contracts.ExecutionRes
 		b.mu.Unlock()
 	}
 
-	// Optional executor hint constraint: grant may restrict which executor IDs are usable.
-	// The registry/router enforces actual backend selection; unknown tools fail closed there.
-	// Empty hints means no extra restriction at the broker layer.
 	if len(g.Constraints.AllowedExecutorHints) > 0 {
-		// Presence of hints is recorded on the grant; wildcard "*" allows any registered executor.
-		// Specific IDs are validated when the executor layer reports its ID (post-dispatch soft check
-		// is not applied here to keep brokers thin — Router.Resolve honors hints).
 		_ = g.Constraints.AllowedExecutorHints
 	}
 
-	// Dispatch — only path to execution
+	// Host resolution AFTER authorization. Unknown/invalid host → fail closed.
+	if b.Hosts != nil {
+		host, err := b.Hosts.Resolve(req)
+		if err != nil {
+			return rejected("unknown execution host: " + err.Error()), err
+		}
+		result, err := host.Execute(context.Background(), req)
+		if err != nil {
+			return result, err
+		}
+		if result.HostID == "" {
+			result.HostID = string(host.ID())
+		}
+		return result, nil
+	}
+
+	// Legacy fallback (should not be used when New() registers Hosts)
 	result, err := b.executor.Execute(req)
 	if err != nil {
 		return result, err
