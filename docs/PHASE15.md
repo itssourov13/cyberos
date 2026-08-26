@@ -4,7 +4,7 @@
 |-----------|--------|--------|
 | **15A** | Autonomy domain events + observation contracts | Done |
 | **15B** | Event → Observe → Analyze → Re-plan → Policy | Done |
-| **15C** | Durable dispatcher / outbox | Not started |
+| **15C** | Durable dispatcher / outbox | Done |
 | **15D** | Provider / external-brain hardening | Not started |
 | **15E** | Freeze | Not started |
 
@@ -41,3 +41,11 @@ Event → Observation → Analyze → RePlan → ValidatePlan → Apply → Poli
 - CONTROLLED may report POLICY_ELIGIBLE without calling Handoff.Execute / Orchestrator
 - In-process idempotency on (project, idempotency_key)
 - Terminal/cancelled runs → TERMINAL; identity mismatch → STALE_CONTEXT
+
+## 15C
+
+Durable outbox (`015_autonomy_outbox.sql`) + memory/PG repos + `Dispatcher`.
+
+- Claim/lease, bounded retry, dead-letter, per-run one-claim-per-batch ordering
+- Delivers only to `EventAutonomyProcessor` (15B)
+- No Grant/Broker/Executor path; live PG verification SKIP without DSN
