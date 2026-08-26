@@ -1,4 +1,4 @@
-# Phase 15 — Event-Driven Controlled Autonomy (in progress)
+# Phase 15 — Event-Driven Controlled Autonomy (**FROZEN** at `v0.15.0`)
 
 | Sub-phase | Focus | Status |
 |-----------|--------|--------|
@@ -6,53 +6,46 @@
 | **15B** | Event → Observe → Analyze → Re-plan → Policy | Done |
 | **15C** | Durable dispatcher / outbox | Done |
 | **15D** | Provider / external-brain hardening | Done |
-| **15E** | Freeze | Not started |
+| **15E** | Final audit + freeze | Done |
 
-## 15A
-
-Versioned contracts only:
-
-- `AutonomyEvent` + `AutonomyEventContractV1`
-- Types: `execution.completed|failed`, `finding.created`, `workflow.completed|failed`, `autonomy.policy_blocked`
-- `EventObservationRequest` + `ObservationContractV1` (distinct from Phase 13 Analyze `ObservationRequest`)
-- `ValidateAutonomyEvent` / `ToEventObservation` — pure, fail-closed
-- Idempotency: `(project_id, idempotency_key)` via `SameLogicalEvent`
-- `ToEnvelope()` for existing `EventEnvelope` / Hub compatibility
-- Payload bounds; secret-like keys rejected
-
-**STOP boundary:** Event → Observation → **STOP**
-
-Does **not** invoke Brain, Policy, Handoff, Orchestrator, Grant, Broker, or Executor.
-
-## Security
+## Architecture
 
 ```
-Event ≠ Authorization
-Observation ≠ Execution
+Human / External Brain (OpenAI/OpenRouter/Local / future JARVIS)
+        │ Auth + API/SDK
+        ▼
+AI Layer (Context / Brain / ValidatePlan)     ← untrusted
+        │
+Autonomy (Event → Observe → RePlan → Policy → Handoff eligibility)
+        │ Outbox + Dispatcher (delivery only)
+        ▼
+Workflow Orchestrator
+        │
+CP → Decision → Fresh Grant → Broker → Sandbox → Executor   ← trusted kernel
+        │
+Evidence → AutonomyEvent → (next iteration)
+```
+
+## Trust model
+
+| Component | Role |
+|-----------|------|
+| Brain / Event / Plan / Evidence | **Untrusted** |
+| Autonomy Policy | **Eligibility only** |
+| Handoff | Delegates to Orchestrator (does not mint Grant) |
+| Control Plane | **Sole authorization** |
+| Broker | **Sole execution gateway** |
+
+## Limitations
+
+1. Live PostgreSQL autonomy/outbox verification **SKIP** without DSN.
+2. PG outbox claim uses select+update (not `SKIP LOCKED`).
+3. No dedicated max-LLM-calls budget beyond existing autonomy step/runtime caps.
+4. JARVIS/Zoya product, remote workers, marketplace — **future**.
+5. Event processor reports eligibility; explicit Handoff/API still drives Orchestrator advance.
+
+## Security kernel (unchanged)
+
+```
 Scope → Auth → CP → Decision → Grant → Broker → Sandbox → Executor
 ```
-
-## 15B
-
-`EventAutonomyProcessor.Process`:
-Event → Observation → Analyze → RePlan → ValidatePlan → Apply → Policy → **STOP**
-
-- MANUAL/ASSISTED → not AdvanceEligible
-- CONTROLLED may report POLICY_ELIGIBLE without calling Handoff.Execute / Orchestrator
-- In-process idempotency on (project, idempotency_key)
-- Terminal/cancelled runs → TERMINAL; identity mismatch → STALE_CONTEXT
-
-## 15C
-
-Durable outbox (`015_autonomy_outbox.sql`) + memory/PG repos + `Dispatcher`.
-
-- Claim/lease, bounded retry, dead-letter, per-run one-claim-per-batch ordering
-- Delivers only to `EventAutonomyProcessor` (15B)
-- No Grant/Broker/Executor path; live PG verification SKIP without DSN
-
-## 15D
-
-Provider hardening verified (timeout, LimitReader, redirect strips Authorization, APIKeyRef).
-API: `POST /api/v1/ai/analyze|plan|apply` — project-scoped, untrusted results only.
-SDK: `Analyze`, `Plan`, `ApplyPlan`, `WithBrain`.
-External brain = authenticated principal; no Grant/Broker/Executor APIs.

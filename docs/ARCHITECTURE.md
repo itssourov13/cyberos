@@ -334,3 +334,8 @@ Controlled autonomy: Observe→Analyze→Plan→Policy→Orchestrator→CP→Gra
 ## Phase 14 (frozen at v0.14.0)
 
 Durable AutonomyRun + Policy → Handoff → Orchestrator → CP→Grant→Broker. AI/policy remain non-authoritative. See `docs/PHASE14.md`.
+
+
+## Phase 15 (frozen at v0.15.0)
+
+Event-driven observe→analyze→re-plan→policy + durable outbox; provider-neutral external-brain API. Kernel unchanged. See `docs/PHASE15.md`.

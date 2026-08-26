@@ -105,3 +105,6 @@ Never claim PG durability verified when tests were skipped.
 
 
 **Phase 14 frozen at tag `v0.14.0`.** Apply migration `014_autonomy_runs.sql` for durable autonomy. Process tools remain fail-closed.
+
+
+**Phase 15 frozen at `v0.15.0`.** Apply migrations through `015_autonomy_outbox.sql`. Process tools fail-closed.
