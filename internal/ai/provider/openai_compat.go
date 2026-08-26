@@ -169,7 +169,7 @@ func (o *OpenAICompat) parseResponse(raw []byte, req ai.BrainRequest, op ai.Oper
 		return ai.BrainResponse{Status: "error", Error: "empty choices"}, fmt.Errorf("%w: empty provider response", contracts.ErrInvalidArgument)
 	}
 	content := strings.TrimSpace(chat.Choices[0].Message.Content)
-	meta := map[string]string{"provider_id": o.cfg.ID, "model": o.cfg.Model}
+	meta := map[string]string{"provider_id": o.cfg.ID, "provider_type": string(o.cfg.Type), "model": o.cfg.Model}
 	switch op {
 	case ai.OpPlan:
 		content = extractJSON(content)

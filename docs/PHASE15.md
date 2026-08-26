@@ -5,7 +5,7 @@
 | **15A** | Autonomy domain events + observation contracts | Done |
 | **15B** | Event → Observe → Analyze → Re-plan → Policy | Done |
 | **15C** | Durable dispatcher / outbox | Done |
-| **15D** | Provider / external-brain hardening | Not started |
+| **15D** | Provider / external-brain hardening | Done |
 | **15E** | Freeze | Not started |
 
 ## 15A
@@ -49,3 +49,10 @@ Durable outbox (`015_autonomy_outbox.sql`) + memory/PG repos + `Dispatcher`.
 - Claim/lease, bounded retry, dead-letter, per-run one-claim-per-batch ordering
 - Delivers only to `EventAutonomyProcessor` (15B)
 - No Grant/Broker/Executor path; live PG verification SKIP without DSN
+
+## 15D
+
+Provider hardening verified (timeout, LimitReader, redirect strips Authorization, APIKeyRef).
+API: `POST /api/v1/ai/analyze|plan|apply` — project-scoped, untrusted results only.
+SDK: `Analyze`, `Plan`, `ApplyPlan`, `WithBrain`.
+External brain = authenticated principal; no Grant/Broker/Executor APIs.

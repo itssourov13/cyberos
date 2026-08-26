@@ -109,3 +109,57 @@ func TestConfigRequiresBaseURL(t *testing.T) {
 		t.Fatal("base_url")
 	}
 }
+
+func TestProviderMetaNoSecret(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"choices":[{"message":{"content":"{\"id\":\"p1\",\"contract_version\":\"1\",\"goal\":\"g\",\"project_id\":\"proj\",\"scope_id\":\"s\",\"steps\":[{\"id\":\"1\",\"capability_id\":\"recon.network.portscan\"}]}"}}]}`))
+	}))
+	defer srv.Close()
+	b, err := provider.NewOpenAICompat(provider.Config{
+		ID: "oa", Type: provider.TypeOpenAICompatible, BaseURL: srv.URL, Model: "m",
+		APIKeyRef: "env:TEST_KEY", Timeout: 5 * time.Second,
+	}, secrets.NewMapResolver(map[string]string{"env:TEST_KEY": "sk-super-secret-key"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := b.Plan(context.Background(), ai.BrainRequest{
+		Operation: ai.OpPlan, ProjectID: "proj", ScopeID: "s", Objective: "scan",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range resp.ProviderMeta {
+		if strings.Contains(v, "sk-super") || strings.Contains(k, "key") {
+			t.Fatal(resp.ProviderMeta)
+		}
+	}
+	if resp.ProviderMeta["provider_type"] == "" {
+		t.Fatal("expected provider_type in meta")
+	}
+}
+
+func TestRedirectStripsAuthorization(t *testing.T) {
+	var secondAuth string
+	final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		secondAuth = r.Header.Get("Authorization")
+		w.Write([]byte(`{"choices":[{"message":{"content":"{}"}}]}`))
+	}))
+	defer final.Close()
+	redir := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, final.URL+"/chat/completions", http.StatusFound)
+	}))
+	defer redir.Close()
+	b, err := provider.NewOpenAICompat(provider.Config{
+		ID: "oa", Type: provider.TypeOpenAICompatible, BaseURL: redir.URL, Model: "m",
+		APIKeyRef: "env:K", Timeout: 5 * time.Second,
+	}, secrets.NewMapResolver(map[string]string{"env:K": "secret-token"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = b.Analyze(context.Background(), ai.BrainRequest{
+		Operation: ai.OpAnalyze, ProjectID: "p", Objective: "x",
+	})
+	if secondAuth != "" {
+		t.Fatalf("Authorization leaked across host redirect: %q", secondAuth)
+	}
+}

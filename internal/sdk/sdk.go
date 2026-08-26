@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"cyberos/internal/ai"
 	"cyberos/internal/ai/apply"
 	"cyberos/internal/ai/autonomy"
 	appscope "cyberos/internal/application/scope"
@@ -68,6 +69,7 @@ type Client struct {
 	AIApply         *apply.Applicator        // Phase 12D plan → workflow (no execution)
 	Autonomy        *autonomy.Controller     // Phase 13/14 autonomy
 	AutonomyHandoff *autonomy.AdvanceHandoff // Phase 14B handoff
+	Brain           ai.Brain                 // Phase 15D optional external brain
 }
 
 // NewInMemory constructs a client with mock broker, issuer, evidence stack,
