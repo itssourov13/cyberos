@@ -82,3 +82,24 @@ Trust tiers, full revocation, CP integration, marketplace, key rotation product
 
 ### NOT in 18C
 CP integration (18D), marketplace, automatic trust-from-signer (default)
+
+## 18D — Pack Trust → Control Plane (COMPLETE)
+
+### Integration
+`EvaluateRequest` fields:
+- `RequireTrustedPack`
+- `EffectivePackTrust` (`TRUSTED`|`VERIFIED`|`UNTRUSTED`|`REVOKED`)
+- `PackContentDigest`, `PackKeyID`
+
+`PackTrustPolicyEvaluator` wraps policy evaluation:
+- RequireTrustedPack + TRUSTED → continue inner policy
+- VERIFIED / UNTRUSTED → **DENY** (`PACK_NOT_TRUSTED` / `PACK_TRUST_REQUIRED`)
+- REVOKED → **DENY** (`PACK_REVOKED`)
+
+### Invariant
+**TRUSTED ≠ AUTHORIZED.** Capability policy can still deny a TRUSTED pack.  
+TrustEvaluator does not issue Grants or call Broker.  
+Caller evaluates project-scoped trust then supplies `EffectivePackTrust` to CP.
+
+### NOT in 18D
+Durable TrustStore, admin trust API, marketplace, JARVIS

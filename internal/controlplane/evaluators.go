@@ -90,3 +90,32 @@ func (DefaultApprovalEvaluator) Evaluate(_ context.Context, req EvaluateRequest,
 		Reason: "approval not required",
 	}
 }
+
+
+// PackTrustPolicyEvaluator wraps an inner PolicyEvaluator and enforces pack trust eligibility.
+// TRUSTED is eligibility only — not authorization. Capability policy can still deny.
+type PackTrustPolicyEvaluator struct {
+	Inner PolicyEvaluator
+}
+
+func (e PackTrustPolicyEvaluator) Evaluate(ctx context.Context, req EvaluateRequest, principal contracts.PrincipalRef, sc *domainscope.Scope) contracts.PolicyResult {
+	inner := e.Inner
+	if inner == nil {
+		inner = DefaultPolicyEvaluator{}
+	}
+	if req.RequireTrustedPack {
+		switch req.EffectivePackTrust {
+		case "TRUSTED":
+			// eligible — continue to inner policy
+		case "REVOKED":
+			return contracts.PolicyResult{Allowed: false, Reason: "PACK_REVOKED"}
+		case "VERIFIED":
+			return contracts.PolicyResult{Allowed: false, Reason: "PACK_NOT_TRUSTED"}
+		case "UNTRUSTED", "":
+			return contracts.PolicyResult{Allowed: false, Reason: "PACK_TRUST_REQUIRED"}
+		default:
+			return contracts.PolicyResult{Allowed: false, Reason: "PACK_TRUST_REQUIRED"}
+		}
+	}
+	return inner.Evaluate(ctx, req, principal, sc)
+}
