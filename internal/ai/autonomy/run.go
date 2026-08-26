@@ -47,11 +47,13 @@ type AutonomyRun struct {
 	ParentPlanID    string                   `json:"parent_plan_id,omitempty"`
 	AnalysisID      string                   `json:"analysis_id,omitempty"`
 	WorkflowDefID   string                   `json:"workflow_definition_id,omitempty"`
+	WorkflowRunID   string                   `json:"workflow_run_id,omitempty"`
 	LastDecision    string                   `json:"last_decision,omitempty"`
 	StopReason      string                   `json:"stop_reason,omitempty"`
 	StartedAt       time.Time                `json:"started_at"`
 	UpdatedAt       time.Time                `json:"updated_at"`
 	FinishedAt      time.Time                `json:"finished_at,omitempty"`
+	CancelledAt     time.Time                `json:"cancelled_at,omitempty"`
 	Definition      *workflow.Definition     `json:"-"`
 	CapabilityHints []contracts.CapabilityID `json:"capability_hints,omitempty"`
 	Version         int64                    `json:"version,omitempty"`
@@ -255,8 +257,9 @@ func (c *Controller) Cancel(runID string) (*AutonomyRun, error) {
 		return run, nil
 	}
 	run.State = RunCancelled
-	run.StopReason = "operator_cancelled"
+	run.CancelledAt = c.now()
 	run.FinishedAt = c.now()
+	run.StopReason = "operator_cancelled"
 	run.UpdatedAt = c.now()
 	c.persist(run)
 	return run, nil
@@ -376,10 +379,22 @@ func (c *Controller) persist(run *AutonomyRun) {
 	rec := runToRecord(run)
 	ctx := context.Background()
 	if _, err := c.Repo.Get(ctx, run.ProjectID, run.ID); err != nil {
-		_ = c.Repo.Create(ctx, rec)
+		if run.Version == 0 {
+			run.Version = 1
+			rec.Version = 1
+		}
+		if err := c.Repo.Create(ctx, rec); err != nil {
+			return
+		}
+		c.Store.Put(run)
 		return
 	}
-	_ = c.Repo.Update(ctx, rec)
+	if err := c.Repo.Update(ctx, rec); err != nil {
+		return
+	}
+	// DB increments version; keep in-memory CAS token in sync for subsequent updates.
+	run.Version++
+	c.Store.Put(run)
 }
 
 func runToRecord(run *AutonomyRun) ports.AutonomyRunRecord {
@@ -393,9 +408,10 @@ func runToRecord(run *AutonomyRun) ports.AutonomyRunRecord {
 		Mode: string(run.Policy.Mode), PolicyVersion: string(run.Policy.Version),
 		PolicyJSON: policyJSON, State: string(run.State), Iteration: run.Iteration,
 		StepsConsumed: run.StepsConsumed, AnalysisID: run.AnalysisID, PlanID: run.CurrentPlanID,
-		ParentPlanID: run.ParentPlanID, WorkflowDefID: run.WorkflowDefID,
+		ParentPlanID: run.ParentPlanID, WorkflowDefID: run.WorkflowDefID, WorkflowRunID: run.WorkflowRunID,
 		LastDecision: run.LastDecision, StopReason: run.StopReason, Version: run.Version,
 		StartedAt: run.StartedAt, UpdatedAt: run.UpdatedAt, FinishedAt: run.FinishedAt,
+		CancelledAt: run.CancelledAt,
 	}
 }
 
@@ -428,8 +444,9 @@ func recordToRun(rec ports.AutonomyRunRecord) *AutonomyRun {
 		ScopeID: rec.ScopeID, PrincipalID: rec.PrincipalID, CorrelationID: rec.CorrelationID,
 		Policy: pol, State: RunState(rec.State), Iteration: rec.Iteration, StepsConsumed: rec.StepsConsumed,
 		CurrentPlanID: rec.PlanID, ParentPlanID: rec.ParentPlanID, AnalysisID: rec.AnalysisID,
-		WorkflowDefID: rec.WorkflowDefID, LastDecision: rec.LastDecision, StopReason: rec.StopReason,
+		WorkflowDefID: rec.WorkflowDefID, WorkflowRunID: rec.WorkflowRunID,
+		LastDecision: rec.LastDecision, StopReason: rec.StopReason,
 		StartedAt: rec.StartedAt, UpdatedAt: rec.UpdatedAt, FinishedAt: rec.FinishedAt,
-		Version: rec.Version, PolicyJSON: rec.PolicyJSON,
+		CancelledAt: rec.CancelledAt, Version: rec.Version, PolicyJSON: rec.PolicyJSON,
 	}
 }
