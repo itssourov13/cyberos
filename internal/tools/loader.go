@@ -70,6 +70,8 @@ type Loader struct {
 	// SignerKeys and VerifyMode are optional Phase 18B verification (not authorization).
 	SignerKeys *SignerKeyRegistry
 	VerifyMode VerificationMode
+	TrustEval  *TrustEvaluator
+	ProjectID  contracts.ProjectID // project scope for trust evaluation
 }
 
 // NewLoader constructs a pack loader. If cat is nil, the platform catalog is used.
@@ -128,6 +130,14 @@ func (l *Loader) InstallPackFile(pf PackFile) (*InstallResult, error) {
 					return nil, err2
 				}
 			}
+		}
+	} else if mode == VerifyTrustRequired {
+		if l.TrustEval == nil {
+			return nil, fmt.Errorf("%w: trust evaluator required", contracts.ErrInvalidArgument)
+		}
+		td := l.TrustEval.Evaluate(l.ProjectID, pf)
+		if td.State != TrustTrusted {
+			return nil, fmt.Errorf("%w: pack trust failed: %s", contracts.ErrInvalidArgument, td.Reason)
 		}
 	} else {
 		res := VerifyPack(pf, l.SignerKeys, mode)

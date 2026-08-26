@@ -58,3 +58,27 @@ Signing, key registry, trust tiers, revocation, marketplace, Grant/Broker change
 
 ### NOT in 18B
 Trust tiers, full revocation, CP integration, marketplace, key rotation product
+
+## 18C — Trust Policy & Revocation (COMPLETE)
+
+### Trust states
+`UNTRUSTED` → `VERIFIED` → `TRUSTED` · any → `REVOKED` (terminal)
+
+### Semantics
+| Outcome | Meaning |
+|---------|---------|
+| VERIFIED | Valid signature + active key; **not** policy-trusted |
+| TRUSTED | Explicit digest trust (or optional signer inheritance, **default OFF**) |
+| REVOKED | Pack digest or signer revoked — dominates TRUSTED |
+
+### Policy
+- Project-scoped `TrustStore` (TrustPack / RevokePack)
+- Signer `Revoke` → KEY_REVOKED for all packs
+- **Signature alone never yields TRUSTED**
+- **Trust ≠ authorization** (no CP/Grant/Broker path)
+
+### Loader mode
+`TRUST_REQUIRED` — install only if `TrustDecision.State == TRUSTED`
+
+### NOT in 18C
+CP integration (18D), marketplace, automatic trust-from-signer (default)

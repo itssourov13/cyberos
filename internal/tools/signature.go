@@ -188,6 +188,10 @@ func VerifyPackSignature(f PackFile, reg *SignerKeyRegistry) PackVerificationRes
 		out.Reason = "UNKNOWN_KEY"
 		return out
 	}
+	if key.Status == SignerKeyRevoked {
+		out.Reason = "KEY_REVOKED"
+		return out
+	}
 	if key.Status != SignerKeyActive {
 		out.Reason = "KEY_DISABLED"
 		return out
@@ -264,6 +268,9 @@ func VerifyPack(f PackFile, reg *SignerKeyRegistry, mode VerificationMode) PackV
 			Identity: PackIdentity{Name: f.Pack.Name, Version: string(f.Pack.Version), Digest: f.Pack.ContentDigest},
 		}
 	case VerifySignedRequired:
+		return VerifyPackSignature(f, reg)
+	case VerifyTrustRequired:
+		// Trust evaluation is performed by TrustEvaluator; crypto-only here.
 		return VerifyPackSignature(f, reg)
 	default:
 		return PackVerificationResult{Reason: "UNSUPPORTED_ALGORITHM"}
