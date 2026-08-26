@@ -5,7 +5,7 @@
 | **16A** | Production persistence & crash recovery | **Done** |
 | **16B** | Outbox concurrency (SKIP LOCKED) | **Done** |
 | **16C** | AI/autonomy LLM budgets | **Done** |
-| **16D** | API rate limits / operator safety | Not started |
+| **16D** | API rate limits / operator safety | **Done** |
 | **16E** | Final audit + freeze | Not started |
 
 ## 16A
@@ -68,3 +68,22 @@ Migration `016_autonomy_guardrails.sql`: `llm_calls_used`, `no_progress_count`, 
 
 ### Security
 Guardrail block → no Handoff/Orchestrator/Grant/Broker. MANUAL/ASSISTED remain WAIT for auto-advance.
+
+
+## 16D
+
+### API safety
+- `http.MaxBytesReader` body cap (default 1 MiB)
+- Process-local fixed-window rate limit on `/api/v1/ai/*` and `/api/v1/autonomy/*`
+- Key: `(group|principal_id|project)`; HTTP **429** + `Retry-After`
+- Rate limit does **not** consume 16C LLM budget
+
+### ASSISTED approval
+- `POST .../approve` and `.../reject` — control signals only
+- ASSISTED starts `PENDING_APPROVAL`; Advance waits until `APPROVED`
+- Approval ≠ Grant; Policy still WAIT for ASSISTED; cancel wins
+- Migration `017_autonomy_approval.sql`
+
+### Limitations
+- Rate limiter is **process-local** (not global multi-replica)
+- LIVE PG verification depends on DSN

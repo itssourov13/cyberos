@@ -18,9 +18,10 @@ import (
 
 // Server is the API v1 HTTP handler root.
 type Server struct {
-	SDK  *sdk.Client
-	hub  *events.Hub
-	Auth *auth.Middleware // optional; when set, protects API routes
+	SDK     *sdk.Client
+	hub     *events.Hub
+	Auth    *auth.Middleware // optional; when set, protects API routes
+	Limiter *SafetyLimiter   // Phase 16D process-local AI/autonomy rate limits
 }
 
 // NewServer constructs an API server.
@@ -60,6 +61,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/autonomy/runs/{id}/cancel", s.handleAutonomyCancel)
 	mux.HandleFunc("/api/v1/autonomy/runs/{id}/resume", s.handleAutonomyResume)
 	mux.HandleFunc("/api/v1/autonomy/runs/{id}/advance", s.handleAutonomyAdvance)
+	mux.HandleFunc("/api/v1/autonomy/runs/{id}/approve", s.handleAutonomyApprove)
+	mux.HandleFunc("/api/v1/autonomy/runs/{id}/reject", s.handleAutonomyReject)
 	mux.HandleFunc("/api/v1/ai/analyze", s.handleAIAnalyze)
 	mux.HandleFunc("/api/v1/ai/plan", s.handleAIPlan)
 	mux.HandleFunc("/api/v1/ai/apply", s.handleAIApply)

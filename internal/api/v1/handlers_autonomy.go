@@ -56,6 +56,10 @@ func (s *Server) StartAutonomyRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotImplemented, "autonomy not configured")
 		return
 	}
+	s.limitBody(w, r)
+	if !s.limitRequest(w, r, "autonomy") {
+		return
+	}
 	var body autonomy.StartRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
@@ -96,6 +100,10 @@ func (s *Server) CancelAutonomyRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotImplemented, "autonomy not configured")
 		return
 	}
+	s.limitBody(w, r)
+	if !s.limitRequest(w, r, "autonomy") {
+		return
+	}
 	id := r.PathValue("id")
 	run, err := s.SDK.GetAutonomy(id)
 	if err != nil {
@@ -117,6 +125,10 @@ func (s *Server) CancelAutonomyRun(w http.ResponseWriter, r *http.Request) {
 func (s *Server) ResumeAutonomyRun(w http.ResponseWriter, r *http.Request) {
 	if s.SDK == nil || s.SDK.Autonomy == nil {
 		writeErr(w, http.StatusNotImplemented, "autonomy not configured")
+		return
+	}
+	s.limitBody(w, r)
+	if !s.limitRequest(w, r, "autonomy") {
 		return
 	}
 	id := r.PathValue("id")
@@ -194,7 +206,78 @@ func autonomyView(run *autonomy.AutonomyRun) map[string]any {
 		"analysis_id":     run.AnalysisID,
 		"workflow_def_id": run.WorkflowDefID,
 		"stop_reason":     run.StopReason,
+		"approval_state":  run.ApprovalState,
 		"started_at":      run.StartedAt,
 		"updated_at":      run.UpdatedAt,
 	}
+}
+
+func (s *Server) handleAutonomyApprove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	s.ApproveAutonomyRun(w, r)
+}
+
+func (s *Server) handleAutonomyReject(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	s.RejectAutonomyRun(w, r)
+}
+
+// ApproveAutonomyRun POST /api/v1/autonomy/runs/{id}/approve — ASSISTED control only (not a Grant).
+func (s *Server) ApproveAutonomyRun(w http.ResponseWriter, r *http.Request) {
+	if s.SDK == nil || s.SDK.Autonomy == nil {
+		writeErr(w, http.StatusNotImplemented, "autonomy not configured")
+		return
+	}
+	s.limitBody(w, r)
+	if !s.limitRequest(w, r, "autonomy") {
+		return
+	}
+	id := r.PathValue("id")
+	run, err := s.SDK.GetAutonomy(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if !enforceProject(w, r, run.ProjectID) {
+		return
+	}
+	run, err = s.SDK.Autonomy.Approve(id)
+	if err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, autonomyView(run))
+}
+
+// RejectAutonomyRun POST /api/v1/autonomy/runs/{id}/reject — ASSISTED control only.
+func (s *Server) RejectAutonomyRun(w http.ResponseWriter, r *http.Request) {
+	if s.SDK == nil || s.SDK.Autonomy == nil {
+		writeErr(w, http.StatusNotImplemented, "autonomy not configured")
+		return
+	}
+	s.limitBody(w, r)
+	if !s.limitRequest(w, r, "autonomy") {
+		return
+	}
+	id := r.PathValue("id")
+	run, err := s.SDK.GetAutonomy(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if !enforceProject(w, r, run.ProjectID) {
+		return
+	}
+	run, err = s.SDK.Autonomy.Reject(id)
+	if err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, autonomyView(run))
 }

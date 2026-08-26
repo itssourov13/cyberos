@@ -29,6 +29,16 @@ const (
 	RunPolicyBlocked RunState = "POLICY_BLOCKED"
 )
 
+// ApprovalState is ASSISTED operator control (not authorization).
+type ApprovalState string
+
+const (
+	ApprovalNone     ApprovalState = ""
+	ApprovalPending  ApprovalState = "PENDING_APPROVAL"
+	ApprovalApproved ApprovalState = "APPROVED"
+	ApprovalRejected ApprovalState = "REJECTED"
+)
+
 // AutonomyRun is one continuous controlled autonomous operation (Phase 13D).
 // It does not issue grants or call Broker; advancement is eligibility-only.
 type AutonomyRun struct {
@@ -47,6 +57,7 @@ type AutonomyRun struct {
 	NextAllowedAt   time.Time                `json:"next_allowed_at,omitempty"`
 	NoProgressCount int                      `json:"no_progress_count"`
 	LastProgressKey string                   `json:"last_progress_key,omitempty"`
+	ApprovalState   ApprovalState            `json:"approval_state,omitempty"`
 	CurrentPlanID   string                   `json:"current_plan_id,omitempty"`
 	ParentPlanID    string                   `json:"parent_plan_id,omitempty"`
 	AnalysisID      string                   `json:"analysis_id,omitempty"`
@@ -156,6 +167,9 @@ func (c *Controller) Start(ctx context.Context, req StartRequest) (*AutonomyRun,
 		Policy: req.Policy, State: RunPending, CapabilityHints: req.CapabilityHints,
 		StartedAt: c.now(), UpdatedAt: c.now(),
 	}
+	if req.Policy.Mode == ModeAssisted {
+		run.ApprovalState = ApprovalPending
+	}
 	c.Analyzer.SourceData = req.SourceData
 	c.RePlanner.SourceData = req.SourceData
 	if err := c.transition(run, RunRunning); err != nil {
@@ -197,6 +211,9 @@ func (c *Controller) Advance(ctx context.Context, runID string) (*AdvanceResult,
 	}
 
 	// Budget check before iteration
+	if run.Policy.Mode == ModeAssisted && run.ApprovalState != ApprovalApproved {
+		return &AdvanceResult{Run: run, MayAdvance: false, PolicyDecision: PolicyEvalResult{Decision: DecisionWait, Reason: "awaiting_approval"}}, nil
+	}
 	dec, err := c.evalPolicy(run, "")
 	if err != nil {
 		return nil, err
@@ -246,6 +263,52 @@ func (c *Controller) Advance(ctx context.Context, runID string) (*AdvanceResult,
 	run.UpdatedAt = c.now()
 	c.persist(run)
 	return &AdvanceResult{Run: run, PolicyDecision: dec, MayAdvance: may, Definition: run.Definition}, nil
+}
+
+// Approve marks an ASSISTED run as operator-approved (not a Grant).
+func (c *Controller) Approve(runID string) (*AutonomyRun, error) {
+	run, ok := c.Store.Get(runID)
+	if !ok {
+		return nil, contracts.ErrNotFound
+	}
+	if run.State == RunCancelled || run.State == RunSucceeded || run.State == RunFailed {
+		return nil, fmt.Errorf("%w: run terminal", contracts.ErrConflict)
+	}
+	if run.Policy.Mode != ModeAssisted {
+		return nil, fmt.Errorf("%w: approval only for ASSISTED mode", contracts.ErrInvalidArgument)
+	}
+	if run.ApprovalState == ApprovalApproved {
+		return run, nil
+	}
+	if run.ApprovalState == ApprovalRejected {
+		return nil, fmt.Errorf("%w: already rejected", contracts.ErrConflict)
+	}
+	run.ApprovalState = ApprovalApproved
+	run.UpdatedAt = c.now()
+	c.persist(run)
+	return run, nil
+}
+
+// Reject marks an ASSISTED run as rejected (not authorization).
+func (c *Controller) Reject(runID string) (*AutonomyRun, error) {
+	run, ok := c.Store.Get(runID)
+	if !ok {
+		return nil, contracts.ErrNotFound
+	}
+	if run.State == RunCancelled || run.State == RunSucceeded || run.State == RunFailed {
+		return nil, fmt.Errorf("%w: run terminal", contracts.ErrConflict)
+	}
+	if run.Policy.Mode != ModeAssisted {
+		return nil, fmt.Errorf("%w: reject only for ASSISTED mode", contracts.ErrInvalidArgument)
+	}
+	if run.ApprovalState == ApprovalRejected {
+		return run, nil
+	}
+	run.ApprovalState = ApprovalRejected
+	run.StopReason = "operator_rejected"
+	run.UpdatedAt = c.now()
+	c.persist(run)
+	return run, nil
 }
 
 // Cancel stops further autonomous progression (idempotent).
@@ -483,7 +546,7 @@ func runToRecord(run *AutonomyRun) ports.AutonomyRunRecord {
 		NextAllowedAt: run.NextAllowedAt,
 		AnalysisID:    run.AnalysisID, PlanID: run.CurrentPlanID,
 		ParentPlanID: run.ParentPlanID, WorkflowDefID: run.WorkflowDefID, WorkflowRunID: run.WorkflowRunID,
-		LastDecision: run.LastDecision, StopReason: run.StopReason, Version: run.Version,
+		LastDecision: run.LastDecision, StopReason: run.StopReason, ApprovalState: string(run.ApprovalState), Version: run.Version,
 		StartedAt: run.StartedAt, UpdatedAt: run.UpdatedAt, FinishedAt: run.FinishedAt,
 		CancelledAt: run.CancelledAt,
 	}
@@ -521,7 +584,7 @@ func recordToRun(rec ports.AutonomyRunRecord) *AutonomyRun {
 		LastProgressKey: rec.LastProgressKey, NextAllowedAt: rec.NextAllowedAt,
 		CurrentPlanID: rec.PlanID, ParentPlanID: rec.ParentPlanID, AnalysisID: rec.AnalysisID,
 		WorkflowDefID: rec.WorkflowDefID, WorkflowRunID: rec.WorkflowRunID,
-		LastDecision: rec.LastDecision, StopReason: rec.StopReason,
+		LastDecision: rec.LastDecision, StopReason: rec.StopReason, ApprovalState: ApprovalState(rec.ApprovalState),
 		StartedAt: rec.StartedAt, UpdatedAt: rec.UpdatedAt, FinishedAt: rec.FinishedAt,
 		CancelledAt: rec.CancelledAt, Version: rec.Version, PolicyJSON: rec.PolicyJSON,
 	}

@@ -33,6 +33,7 @@ type AutonomyRunRecord struct {
 	WorkflowRunID   string
 	LastDecision    string
 	StopReason      string
+	ApprovalState  string
 	Version         int64 // optimistic concurrency
 	StartedAt       time.Time
 	UpdatedAt       time.Time

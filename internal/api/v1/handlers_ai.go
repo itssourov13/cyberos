@@ -18,6 +18,10 @@ func (s *Server) handleAIAnalyze(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotImplemented, "sdk not configured")
 		return
 	}
+	s.limitBody(w, r)
+	if !s.limitRequest(w, r, "ai") {
+		return
+	}
 	var req ai.BrainRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
@@ -44,6 +48,10 @@ func (s *Server) handleAIPlan(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotImplemented, "sdk not configured")
 		return
 	}
+	s.limitBody(w, r)
+	if !s.limitRequest(w, r, "ai") {
+		return
+	}
 	var req ai.BrainRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
@@ -68,6 +76,10 @@ func (s *Server) handleAIApply(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.SDK == nil {
 		writeErr(w, http.StatusNotImplemented, "sdk not configured")
+		return
+	}
+	s.limitBody(w, r)
+	if !s.limitRequest(w, r, "ai") {
 		return
 	}
 	var body struct {

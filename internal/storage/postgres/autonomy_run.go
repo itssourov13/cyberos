@@ -10,7 +10,7 @@ import (
 	"cyberos/internal/storage/ports"
 )
 
-// AutonomyRunRepo persists autonomy_runs (Phase 14A).
+// AutonomyRunRepo persists autonomy_runs (Phase 14A / 16C / 16D).
 type AutonomyRunRepo struct{ db *DB }
 
 func NewAutonomyRunRepo(db *DB) *AutonomyRunRepo { return &AutonomyRunRepo{db: db} }
@@ -30,15 +30,18 @@ func (r *AutonomyRunRepo) Create(ctx context.Context, rec ports.AutonomyRunRecor
 		INSERT INTO autonomy_runs (
 			id, project_id, tenant_id, scope_id, principal_id, correlation_id, goal, mode,
 			policy_version, policy_json, state, iteration, steps_consumed,
-			llm_calls_used, no_progress_count, last_progress_key, next_allowed_at,
+			llm_calls_used, no_progress_count, last_progress_key, next_allowed_at, approval_state,
 			analysis_id, plan_id, parent_plan_id, workflow_def_id, workflow_run_id,
 			last_decision, stop_reason, version, started_at, updated_at, finished_at, cancelled_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)`,
+		) VALUES (
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30
+		)`,
 		rec.ID, string(rec.ProjectID), string(rec.TenantID), string(rec.ScopeID), string(rec.PrincipalID),
 		string(rec.CorrelationID), rec.Goal, rec.Mode, rec.PolicyVersion, policy, rec.State,
-		rec.Iteration, rec.StepsConsumed, rec.LLMCallsUsed, rec.NoProgressCount, rec.LastProgressKey, nullTimeAutonomy(rec.NextAllowedAt),
-		rec.AnalysisID, rec.PlanID, rec.ParentPlanID,
-		rec.WorkflowDefID, rec.WorkflowRunID, rec.LastDecision, rec.StopReason, rec.Version,
+		rec.Iteration, rec.StepsConsumed, rec.LLMCallsUsed, rec.NoProgressCount, rec.LastProgressKey,
+		nullTimeAutonomy(rec.NextAllowedAt), rec.ApprovalState,
+		rec.AnalysisID, rec.PlanID, rec.ParentPlanID, rec.WorkflowDefID, rec.WorkflowRunID,
+		rec.LastDecision, rec.StopReason, rec.Version,
 		rec.StartedAt.UTC(), rec.UpdatedAt.UTC(), nullTimeAutonomy(rec.FinishedAt), nullTimeAutonomy(rec.CancelledAt),
 	)
 	if err != nil {
@@ -51,7 +54,7 @@ func (r *AutonomyRunRepo) Get(ctx context.Context, projectID contracts.ProjectID
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, project_id, tenant_id, scope_id, principal_id, correlation_id, goal, mode,
 			policy_version, policy_json, state, iteration, steps_consumed,
-			llm_calls_used, no_progress_count, last_progress_key, next_allowed_at,
+			llm_calls_used, no_progress_count, last_progress_key, next_allowed_at, approval_state,
 			analysis_id, plan_id, parent_plan_id, workflow_def_id, workflow_run_id,
 			last_decision, stop_reason, version, started_at, updated_at, finished_at, cancelled_at
 		FROM autonomy_runs WHERE id=$1 AND project_id=$2`, runID, string(projectID))
@@ -59,20 +62,17 @@ func (r *AutonomyRunRepo) Get(ctx context.Context, projectID contracts.ProjectID
 }
 
 func (r *AutonomyRunRepo) Update(ctx context.Context, rec ports.AutonomyRunRecord) error {
-	policy := rec.PolicyJSON
-	if policy == nil {
-		policy = []byte("{}")
-	}
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE autonomy_runs SET
 			state=$1, iteration=$2, steps_consumed=$3, llm_calls_used=$4, no_progress_count=$5,
-			last_progress_key=$6, next_allowed_at=$7, analysis_id=$8, plan_id=$9, parent_plan_id=$10,
-			workflow_def_id=$11, workflow_run_id=$12, last_decision=$13, stop_reason=$14,
-			version=version+1, updated_at=$15, finished_at=$16, cancelled_at=$17
-		WHERE id=$18 AND project_id=$19 AND version=$20`,
+			last_progress_key=$6, next_allowed_at=$7, approval_state=$8, analysis_id=$9, plan_id=$10, parent_plan_id=$11,
+			workflow_def_id=$12, workflow_run_id=$13, last_decision=$14, stop_reason=$15,
+			version=version+1, updated_at=$16, finished_at=$17, cancelled_at=$18
+		WHERE id=$19 AND project_id=$20 AND version=$21`,
 		rec.State, rec.Iteration, rec.StepsConsumed, rec.LLMCallsUsed, rec.NoProgressCount,
-		rec.LastProgressKey, nullTimeAutonomy(rec.NextAllowedAt), rec.AnalysisID, rec.PlanID, rec.ParentPlanID,
-		rec.WorkflowDefID, rec.WorkflowRunID, rec.LastDecision, rec.StopReason,
+		rec.LastProgressKey, nullTimeAutonomy(rec.NextAllowedAt), rec.ApprovalState,
+		rec.AnalysisID, rec.PlanID, rec.ParentPlanID, rec.WorkflowDefID, rec.WorkflowRunID,
+		rec.LastDecision, rec.StopReason,
 		time.Now().UTC(), nullTimeAutonomy(rec.FinishedAt), nullTimeAutonomy(rec.CancelledAt),
 		rec.ID, string(rec.ProjectID), rec.Version,
 	)
@@ -99,7 +99,6 @@ func (r *AutonomyRunRepo) Cancel(ctx context.Context, projectID contracts.Projec
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		// idempotent if already cancelled
 		_, err2 := r.Get(ctx, projectID, runID)
 		return err2
 	}
@@ -110,7 +109,7 @@ func (r *AutonomyRunRepo) ListResumable(ctx context.Context, projectID contracts
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, project_id, tenant_id, scope_id, principal_id, correlation_id, goal, mode,
 			policy_version, policy_json, state, iteration, steps_consumed,
-			llm_calls_used, no_progress_count, last_progress_key, next_allowed_at,
+			llm_calls_used, no_progress_count, last_progress_key, next_allowed_at, approval_state,
 			analysis_id, plan_id, parent_plan_id, workflow_def_id, workflow_run_id,
 			last_decision, stop_reason, version, started_at, updated_at, finished_at, cancelled_at
 		FROM autonomy_runs WHERE project_id=$1 AND state IN ('RUNNING','WAITING','PENDING')`, string(projectID))
@@ -136,13 +135,12 @@ type autonomyScannable interface {
 func scanAutonomyRun(row autonomyScannable) (ports.AutonomyRunRecord, error) {
 	var rec ports.AutonomyRunRecord
 	var proj, ten, scope, prin, corr string
-	var finished, cancelled sql.NullTime
+	var finished, cancelled, nextAllowed sql.NullTime
 	var policy []byte
-	var nextAllowed sql.NullTime
 	err := row.Scan(
 		&rec.ID, &proj, &ten, &scope, &prin, &corr, &rec.Goal, &rec.Mode,
 		&rec.PolicyVersion, &policy, &rec.State, &rec.Iteration, &rec.StepsConsumed,
-		&rec.LLMCallsUsed, &rec.NoProgressCount, &rec.LastProgressKey, &nextAllowed,
+		&rec.LLMCallsUsed, &rec.NoProgressCount, &rec.LastProgressKey, &nextAllowed, &rec.ApprovalState,
 		&rec.AnalysisID, &rec.PlanID, &rec.ParentPlanID, &rec.WorkflowDefID, &rec.WorkflowRunID,
 		&rec.LastDecision, &rec.StopReason, &rec.Version, &rec.StartedAt, &rec.UpdatedAt, &finished, &cancelled,
 	)
