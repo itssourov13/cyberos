@@ -109,6 +109,10 @@ func (l *Loader) InstallPackFile(pf PackFile) (*InstallResult, error) {
 	if err := pf.Validate(); err != nil {
 		return nil, err
 	}
+	// Phase 18A: fail closed if declared content_digest mismatches canonical digest.
+	if err := VerifyDigest(pf, pf.Pack.ContentDigest); err != nil {
+		return nil, err
+	}
 	// Dependency check against already-installed packs/tools (no download).
 	if pf.Pack.Ops != nil {
 		if err := CheckDependencies(l.Platform, pf.Pack.Ops.Dependencies); err != nil {

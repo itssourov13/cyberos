@@ -42,6 +42,9 @@ type Pack struct {
 	ContractVersion contracts.SchemaVersion `json:"contract_version,omitempty"`
 	// Ops is optional runtime/dependency/config/secret metadata (Phase 11D).
 	Ops *OpsMeta `json:"ops,omitempty"`
+	// ContentDigest is optional sha256:<hex> of canonical PackFile content (Phase 18A).
+	// Empty means undigested/legacy — NOT trusted. Digest ≠ signature ≠ authorization.
+	ContentDigest string `json:"content_digest,omitempty"`
 }
 
 // Validate checks pack identity, version, and state.
