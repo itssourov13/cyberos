@@ -46,6 +46,10 @@ type AutonomyPolicy struct {
 	MaxConcurrentSteps  int                      `json:"max_concurrent_steps,omitempty"`
 	MaxRisk             string                   `json:"max_risk,omitempty"` // low|medium|high|critical
 	RequireRiskWhenAuto bool                     `json:"require_risk_when_auto,omitempty"`
+	// Phase 16C guardrails (runaway protection)
+	MaxLLMCalls   int           `json:"max_llm_calls,omitempty"`
+	Cooldown      time.Duration `json:"cooldown,omitempty"`
+	MaxNoProgress int           `json:"max_no_progress,omitempty"`
 }
 
 // PolicyEvalRequest is the authoritative context for a policy check.
@@ -62,6 +66,11 @@ type PolicyEvalRequest struct {
 	ConcurrentSteps int
 	RiskLevel       string // optional
 	Policy          AutonomyPolicy
+	// Phase 16C guardrail state (authoritative from AutonomyRun)
+	LLMCallsUsed    int
+	NextAllowedAt   time.Time
+	NoProgressCount int
+	Now             time.Time
 }
 
 // PolicyEvalResult is a deterministic eligibility decision (not authorization).
@@ -99,6 +108,9 @@ func ValidatePolicy(p AutonomyPolicy) error {
 	}
 	if p.MaxSteps < 0 || p.MaxOutputBytes < 0 || p.MaxConcurrentSteps < 0 {
 		return fmt.Errorf("%w: negative policy budget", contracts.ErrInvalidArgument)
+	}
+	if p.MaxLLMCalls < 0 || p.Cooldown < 0 || p.MaxNoProgress < 0 {
+		return fmt.Errorf("%w: negative guardrail budget", contracts.ErrInvalidArgument)
 	}
 	if p.MaxRisk != "" {
 		switch strings.ToLower(p.MaxRisk) {
@@ -212,6 +224,32 @@ func EvaluateAutonomyPolicy(req PolicyEvalRequest) (PolicyEvalResult, error) {
 			res.Reason = "risk_exceeded"
 			return res, nil
 		}
+	}
+
+	// Phase 16C: CONTROLLED requires explicit LLM budget (no unbounded default).
+	if req.Policy.MaxLLMCalls <= 0 {
+		res.Decision = DecisionDeny
+		res.Reason = "max_llm_calls_required"
+		return res, nil
+	}
+	if req.LLMCallsUsed >= req.Policy.MaxLLMCalls {
+		res.Decision = DecisionStop
+		res.Reason = "max_llm_calls_reached"
+		return res, nil
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if !req.NextAllowedAt.IsZero() && now.Before(req.NextAllowedAt) {
+		res.Decision = DecisionDeny
+		res.Reason = "cooldown_active"
+		return res, nil
+	}
+	if req.Policy.MaxNoProgress > 0 && req.NoProgressCount >= req.Policy.MaxNoProgress {
+		res.Decision = DecisionStop
+		res.Reason = "no_progress_exceeded"
+		return res, nil
 	}
 
 	res.Decision = DecisionAllow

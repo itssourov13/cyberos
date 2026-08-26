@@ -4,7 +4,7 @@
 |-----------|--------|--------|
 | **16A** | Production persistence & crash recovery | **Done** |
 | **16B** | Outbox concurrency (SKIP LOCKED) | **Done** |
-| **16C** | AI/autonomy LLM budgets | Not started |
+| **16C** | AI/autonomy LLM budgets | **Done** |
 | **16D** | API rate limits / operator safety | Not started |
 | **16E** | Final audit + freeze | Not started |
 
@@ -53,3 +53,18 @@ Outbox claim is **ownership only** — not authorization. No Grant persistence o
 - Memory tests: PASS
 - Race autonomy/memory: run with suite
 - Live PG: SKIP when `CYBEROS_DATABASE_URL` unset
+
+
+## 16C
+
+### Guardrails
+- `MaxLLMCalls` — CONTROLLED requires >0; exhaustion → POLICY_BLOCKED
+- `Cooldown` — `NextAllowedAt` persisted; blocks ReserveLLMCall
+- `MaxNoProgress` — fingerprint via plan/workflow definition id; threshold blocks
+- `ReserveLLMCall` before Brain; concurrent reservation safe via sequential store + versioned persist
+
+### Persistence
+Migration `016_autonomy_guardrails.sql`: `llm_calls_used`, `no_progress_count`, `last_progress_key`, `next_allowed_at`
+
+### Security
+Guardrail block → no Handoff/Orchestrator/Grant/Broker. MANUAL/ASSISTED remain WAIT for auto-advance.

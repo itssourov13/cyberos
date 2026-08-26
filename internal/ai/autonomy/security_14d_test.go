@@ -26,6 +26,8 @@ func controlledPolicy(project contracts.ProjectID, maxSteps int) autonomy.Autono
 		AllowedCapabilities: []contracts.CapabilityID{"recon.network.portscan"},
 		MaxSteps:            maxSteps,
 		MaxRuntime:          time.Hour,
+		MaxLLMCalls:         50,
+		MaxNoProgress:       10,
 	}
 }
 

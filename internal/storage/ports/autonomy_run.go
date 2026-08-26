@@ -9,31 +9,35 @@ import (
 
 // AutonomyRunRecord is durable autonomy state (Phase 14A). No Grant/secrets.
 type AutonomyRunRecord struct {
-	ID            string
-	ProjectID     contracts.ProjectID
-	TenantID      contracts.TenantID
-	ScopeID       contracts.ScopeID
-	PrincipalID   contracts.PrincipalID
-	CorrelationID contracts.CorrelationID
-	Goal          string
-	Mode          string
-	PolicyVersion string
-	PolicyJSON    []byte // snapshot
-	State         string
-	Iteration     int
-	StepsConsumed int
-	AnalysisID    string
-	PlanID        string
-	ParentPlanID  string
-	WorkflowDefID string
-	WorkflowRunID string
-	LastDecision  string
-	StopReason    string
-	Version       int64 // optimistic concurrency
-	StartedAt     time.Time
-	UpdatedAt     time.Time
-	FinishedAt    time.Time
-	CancelledAt   time.Time
+	ID              string
+	ProjectID       contracts.ProjectID
+	TenantID        contracts.TenantID
+	ScopeID         contracts.ScopeID
+	PrincipalID     contracts.PrincipalID
+	CorrelationID   contracts.CorrelationID
+	Goal            string
+	Mode            string
+	PolicyVersion   string
+	PolicyJSON      []byte // snapshot
+	State           string
+	Iteration       int
+	StepsConsumed   int
+	LLMCallsUsed    int
+	NoProgressCount int
+	LastProgressKey string
+	NextAllowedAt   time.Time
+	AnalysisID      string
+	PlanID          string
+	ParentPlanID    string
+	WorkflowDefID   string
+	WorkflowRunID   string
+	LastDecision    string
+	StopReason      string
+	Version         int64 // optimistic concurrency
+	StartedAt       time.Time
+	UpdatedAt       time.Time
+	FinishedAt      time.Time
+	CancelledAt     time.Time
 }
 
 // AutonomyRunRepository persists AutonomyRun state for restart/resume.

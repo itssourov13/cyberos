@@ -59,7 +59,7 @@ func Test15B_ControlledEligibleNoExecution(t *testing.T) {
 		Policy: autonomy.AutonomyPolicy{
 			Version: autonomy.PolicyContractV1, Mode: autonomy.ModeControlledAutonomous,
 			ProjectID: "proj-a", AllowedCapabilities: []contracts.CapabilityID{"recon.network.portscan"},
-			MaxSteps: 10, MaxRuntime: time.Hour,
+			MaxSteps: 10, MaxRuntime: time.Hour, MaxLLMCalls: 50,
 		},
 		CapabilityHints: []contracts.CapabilityID{"recon.network.portscan"},
 	})
@@ -85,7 +85,7 @@ func Test15B_CancelledTerminal(t *testing.T) {
 	ctrl := autonomy.NewController(&ai.MockBrain{})
 	run, _ := ctrl.Start(context.Background(), autonomy.StartRequest{
 		ID: "ar-can", Goal: "g", ProjectID: "proj-a", ScopeID: "s",
-		Policy: autonomy.AutonomyPolicy{Version: autonomy.PolicyContractV1, Mode: autonomy.ModeControlledAutonomous, ProjectID: "proj-a", MaxSteps: 5},
+		Policy: autonomy.AutonomyPolicy{Version: autonomy.PolicyContractV1, Mode: autonomy.ModeControlledAutonomous, ProjectID: "proj-a", MaxSteps: 5, MaxLLMCalls: 50},
 	})
 	_, _ = ctrl.Cancel(run.ID)
 	ev := baseEvent()

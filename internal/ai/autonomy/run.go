@@ -43,6 +43,10 @@ type AutonomyRun struct {
 	State           RunState                 `json:"state"`
 	Iteration       int                      `json:"iteration"`
 	StepsConsumed   int                      `json:"steps_consumed"`
+	LLMCallsUsed    int                      `json:"llm_calls_used"`
+	NextAllowedAt   time.Time                `json:"next_allowed_at,omitempty"`
+	NoProgressCount int                      `json:"no_progress_count"`
+	LastProgressKey string                   `json:"last_progress_key,omitempty"`
 	CurrentPlanID   string                   `json:"current_plan_id,omitempty"`
 	ParentPlanID    string                   `json:"parent_plan_id,omitempty"`
 	AnalysisID      string                   `json:"analysis_id,omitempty"`
@@ -274,6 +278,72 @@ func (c *Controller) Get(runID string) (*AutonomyRun, error) {
 	return run, nil
 }
 
+// ReserveLLMCall atomically consumes one LLM call against the run budget.
+// Returns false if budget exhausted or cooldown/no-progress blocks; provider must not be called.
+func (c *Controller) ReserveLLMCall(runID string) (bool, *AutonomyRun, error) {
+	run, ok := c.Store.Get(runID)
+	if !ok {
+		return false, nil, contracts.ErrNotFound
+	}
+	if run.State == RunCancelled || run.State == RunSucceeded || run.State == RunFailed || run.State == RunPolicyBlocked {
+		return false, run, nil
+	}
+	now := c.now()
+	// CONTROLLED requires explicit MaxLLMCalls; MANUAL/ASSISTED may observe without auto-exec budget.
+	if run.Policy.MaxLLMCalls <= 0 {
+		if run.Policy.Mode == ModeControlledAutonomous {
+			run.State = RunPolicyBlocked
+			run.StopReason = "max_llm_calls_required"
+			run.UpdatedAt = now
+			c.persist(run)
+			return false, run, nil
+		}
+		// No LLM budget configured for non-controlled modes: allow without counting.
+		return true, run, nil
+	}
+	if run.LLMCallsUsed >= run.Policy.MaxLLMCalls {
+		run.State = RunPolicyBlocked
+		run.StopReason = "max_llm_calls_reached"
+		run.UpdatedAt = now
+		c.persist(run)
+		return false, run, nil
+	}
+	if !run.NextAllowedAt.IsZero() && now.Before(run.NextAllowedAt) {
+		return false, run, nil
+	}
+	if run.Policy.MaxNoProgress > 0 && run.NoProgressCount >= run.Policy.MaxNoProgress {
+		run.State = RunPolicyBlocked
+		run.StopReason = "no_progress_exceeded"
+		run.UpdatedAt = now
+		c.persist(run)
+		return false, run, nil
+	}
+	run.LLMCallsUsed++
+	if run.Policy.Cooldown > 0 {
+		run.NextAllowedAt = now.Add(run.Policy.Cooldown)
+	}
+	run.UpdatedAt = now
+	c.persist(run)
+	return true, run, nil
+}
+
+// NoteProgress records whether this cycle produced meaningful lifecycle progress.
+func (c *Controller) NoteProgress(runID, progressKey string) error {
+	run, ok := c.Store.Get(runID)
+	if !ok {
+		return contracts.ErrNotFound
+	}
+	if progressKey != "" && progressKey != run.LastProgressKey {
+		run.LastProgressKey = progressKey
+		run.NoProgressCount = 0
+	} else {
+		run.NoProgressCount++
+	}
+	run.UpdatedAt = c.now()
+	c.persist(run)
+	return nil
+}
+
 // RecordStepExecuted increments step budget after external Orchestrator execution.
 // Caller is responsible for having obtained a Grant via CP.
 func (c *Controller) RecordStepExecuted(runID string) error {
@@ -329,7 +399,8 @@ func (c *Controller) evalPolicy(run *AutonomyRun, cap contracts.CapabilityID) (P
 		ProjectID: run.ProjectID, TenantID: run.TenantID, ScopeID: run.ScopeID,
 		PrincipalID: run.PrincipalID, CorrelationID: run.CorrelationID,
 		CapabilityID: cap, StepsExecuted: run.StepsConsumed, RuntimeElapsed: elapsed,
-		Policy: run.Policy,
+		Policy: run.Policy, LLMCallsUsed: run.LLMCallsUsed, NextAllowedAt: run.NextAllowedAt,
+		NoProgressCount: run.NoProgressCount, Now: c.now(),
 	})
 }
 
@@ -407,7 +478,10 @@ func runToRecord(run *AutonomyRun) ports.AutonomyRunRecord {
 		PrincipalID: run.PrincipalID, CorrelationID: run.CorrelationID, Goal: run.Goal,
 		Mode: string(run.Policy.Mode), PolicyVersion: string(run.Policy.Version),
 		PolicyJSON: policyJSON, State: string(run.State), Iteration: run.Iteration,
-		StepsConsumed: run.StepsConsumed, AnalysisID: run.AnalysisID, PlanID: run.CurrentPlanID,
+		StepsConsumed: run.StepsConsumed, LLMCallsUsed: run.LLMCallsUsed,
+		NoProgressCount: run.NoProgressCount, LastProgressKey: run.LastProgressKey,
+		NextAllowedAt: run.NextAllowedAt,
+		AnalysisID:    run.AnalysisID, PlanID: run.CurrentPlanID,
 		ParentPlanID: run.ParentPlanID, WorkflowDefID: run.WorkflowDefID, WorkflowRunID: run.WorkflowRunID,
 		LastDecision: run.LastDecision, StopReason: run.StopReason, Version: run.Version,
 		StartedAt: run.StartedAt, UpdatedAt: run.UpdatedAt, FinishedAt: run.FinishedAt,
@@ -443,6 +517,8 @@ func recordToRun(rec ports.AutonomyRunRecord) *AutonomyRun {
 		ID: rec.ID, Goal: rec.Goal, ProjectID: rec.ProjectID, TenantID: rec.TenantID,
 		ScopeID: rec.ScopeID, PrincipalID: rec.PrincipalID, CorrelationID: rec.CorrelationID,
 		Policy: pol, State: RunState(rec.State), Iteration: rec.Iteration, StepsConsumed: rec.StepsConsumed,
+		LLMCallsUsed: rec.LLMCallsUsed, NoProgressCount: rec.NoProgressCount,
+		LastProgressKey: rec.LastProgressKey, NextAllowedAt: rec.NextAllowedAt,
 		CurrentPlanID: rec.PlanID, ParentPlanID: rec.ParentPlanID, AnalysisID: rec.AnalysisID,
 		WorkflowDefID: rec.WorkflowDefID, WorkflowRunID: rec.WorkflowRunID,
 		LastDecision: rec.LastDecision, StopReason: rec.StopReason,

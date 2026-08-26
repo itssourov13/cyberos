@@ -42,7 +42,7 @@ func TestControlledMayAdvanceWhenAllowed(t *testing.T) {
 		Policy: autonomy.AutonomyPolicy{
 			Version: autonomy.PolicyContractV1, Mode: autonomy.ModeControlledAutonomous, ProjectID: "proj-a",
 			AllowedCapabilities: []contracts.CapabilityID{"recon.network.portscan"},
-			MaxSteps:            10, MaxRuntime: time.Hour,
+			MaxSteps:            10, MaxRuntime: time.Hour, MaxLLMCalls: 50,
 		},
 		CapabilityHints: []contracts.CapabilityID{"recon.network.portscan"},
 	})
@@ -65,7 +65,7 @@ func TestMaxStepsBlocks(t *testing.T) {
 		ID: "r3", Goal: "g", ProjectID: "proj-a", ScopeID: "scope-a",
 		Policy: autonomy.AutonomyPolicy{
 			Version: autonomy.PolicyContractV1, Mode: autonomy.ModeControlledAutonomous, ProjectID: "proj-a",
-			MaxSteps: 1, MaxRuntime: time.Hour,
+			MaxSteps: 1, MaxLLMCalls: 50, MaxRuntime: time.Hour,
 			AllowedCapabilities: []contracts.CapabilityID{"recon.network.portscan"},
 		},
 		CapabilityHints: []contracts.CapabilityID{"recon.network.portscan"},

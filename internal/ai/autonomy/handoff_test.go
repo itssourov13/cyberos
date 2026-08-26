@@ -61,7 +61,7 @@ func TestHandoffCancelled(t *testing.T) {
 	ctrl := autonomy.NewController(&ai.MockBrain{})
 	run, _ := ctrl.Start(context.Background(), autonomy.StartRequest{
 		ID: "h3", Goal: "g", ProjectID: "p", ScopeID: "s",
-		Policy: autonomy.AutonomyPolicy{Version: autonomy.PolicyContractV1, Mode: autonomy.ModeControlledAutonomous, ProjectID: "p", MaxSteps: 5},
+		Policy: autonomy.AutonomyPolicy{Version: autonomy.PolicyContractV1, Mode: autonomy.ModeControlledAutonomous, ProjectID: "p", MaxSteps: 5, MaxLLMCalls: 50},
 	})
 	_, _ = ctrl.Cancel(run.ID)
 	h := &autonomy.AdvanceHandoff{Controller: ctrl}
@@ -78,7 +78,7 @@ func TestHandoffProjectMismatch(t *testing.T) {
 	ctrl := autonomy.NewController(&ai.MockBrain{})
 	run, _ := ctrl.Start(context.Background(), autonomy.StartRequest{
 		ID: "h4", Goal: "g", ProjectID: "proj-a", ScopeID: "s",
-		Policy: autonomy.AutonomyPolicy{Version: autonomy.PolicyContractV1, Mode: autonomy.ModeControlledAutonomous, ProjectID: "proj-a", MaxSteps: 5},
+		Policy: autonomy.AutonomyPolicy{Version: autonomy.PolicyContractV1, Mode: autonomy.ModeControlledAutonomous, ProjectID: "proj-a", MaxSteps: 5, MaxLLMCalls: 50},
 	})
 	h := &autonomy.AdvanceHandoff{Controller: ctrl}
 	res, err := h.Execute(context.Background(), autonomy.HandoffRequest{RunID: run.ID, ProjectID: "other"})

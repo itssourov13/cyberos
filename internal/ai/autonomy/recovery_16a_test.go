@@ -55,7 +55,7 @@ func Test16A_CancelSurvivesRestart(t *testing.T) {
 		ID: "ar-16a-can", Goal: "g", ProjectID: "proj-a", ScopeID: "s",
 		Policy: autonomy.AutonomyPolicy{
 			Version: autonomy.PolicyContractV1, Mode: autonomy.ModeControlledAutonomous,
-			ProjectID: "proj-a", MaxSteps: 10,
+			ProjectID: "proj-a", MaxSteps: 10, MaxLLMCalls: 50,
 		},
 	})
 	if err != nil {

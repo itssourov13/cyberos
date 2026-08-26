@@ -154,6 +154,29 @@ func (p *EventAutonomyProcessor) Process(ctx context.Context, event AutonomyEven
 	if run != nil {
 		anReq.PrincipalID = run.PrincipalID
 	}
+	// Phase 16C: reserve LLM budget before Brain (fail closed).
+	if run != nil && p.Controller != nil {
+		ok, blocked, rerr := p.Controller.ReserveLLMCall(run.ID)
+		if rerr != nil {
+			out.Status = ProcessRejected
+			out.Error = rerr.Error()
+			return out, rerr
+		}
+		if !ok {
+			out.Run = blocked
+			out.Status = ProcessPolicyDeny
+			if blocked != nil {
+				out.Error = blocked.StopReason
+				if blocked.StopReason == "" {
+					out.Error = "guardrail_blocked"
+				}
+			}
+			return out, nil
+		}
+		run = blocked
+		out.Run = run
+	}
+
 	analysis, err := p.Analyzer.AnalyzeObservations(ctx, anReq)
 	if err != nil {
 		out.Status = ProcessRejected
@@ -186,6 +209,18 @@ func (p *EventAutonomyProcessor) Process(ctx context.Context, event AutonomyEven
 	out.Lineage = rpRes.Lineage
 	out.Definition = rpRes.Definition
 
+	if run != nil && p.Controller != nil {
+		progressKey := out.PlanID
+		if out.WorkflowDefinitionID != "" {
+			progressKey = out.WorkflowDefinitionID
+		}
+		_ = p.Controller.NoteProgress(run.ID, progressKey)
+		if refreshed, err := p.Controller.Get(run.ID); err == nil {
+			out.Run = refreshed
+			run = refreshed
+		}
+	}
+
 	// Policy eligibility (no Handoff.Execute → no Orchestrator in 15B).
 	policy := AutonomyPolicy{
 		Version: PolicyContractV1, Mode: ModeManual, ProjectID: event.ProjectID, MaxSteps: 1,
@@ -207,9 +242,19 @@ func (p *EventAutonomyProcessor) Process(ctx context.Context, event AutonomyEven
 	if !started.IsZero() && p.Now != nil {
 		elapsed = p.Now().Sub(started)
 	}
+	llmUsed, noProg := 0, 0
+	var nextAt time.Time
+	now := time.Now().UTC()
+	if p.Now != nil {
+		now = p.Now()
+	}
+	if run != nil {
+		llmUsed, noProg, nextAt = run.LLMCallsUsed, run.NoProgressCount, run.NextAllowedAt
+	}
 	dec, err := EvaluateAutonomyPolicy(PolicyEvalRequest{
 		ProjectID: event.ProjectID, TenantID: event.TenantID, ScopeID: event.ScopeID,
 		CapabilityID: cap, StepsExecuted: steps, RuntimeElapsed: elapsed, Policy: policy,
+		LLMCallsUsed: llmUsed, NoProgressCount: noProg, NextAllowedAt: nextAt, Now: now,
 	})
 	out.PolicyDecision = dec
 	if err != nil {

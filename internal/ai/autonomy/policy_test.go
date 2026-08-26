@@ -13,6 +13,7 @@ func basePolicy(mode autonomy.AutonomyMode) autonomy.AutonomyPolicy {
 		Version: autonomy.PolicyContractV1, Mode: mode, ProjectID: "proj-a", TenantID: "ten-a", ScopeID: "scope-a",
 		AllowedCapabilities: []contracts.CapabilityID{"recon.network.portscan"},
 		MaxSteps:            5, MaxRuntime: time.Hour, MaxConcurrentSteps: 2,
+		MaxLLMCalls: 20, MaxNoProgress: 5,
 	}
 }
 
@@ -122,6 +123,54 @@ func TestUnknownCapabilityDeniedWhenAllowlistSet(t *testing.T) {
 		CapabilityID: "evil.cap", Policy: basePolicy(autonomy.ModeControlledAutonomous),
 	})
 	if d.Decision != autonomy.DecisionDeny {
+		t.Fatal(d)
+	}
+}
+
+func Test16C_MaxLLMCallsRequired(t *testing.T) {
+	p := basePolicy(autonomy.ModeControlledAutonomous)
+	p.MaxLLMCalls = 0
+	d, _ := autonomy.EvaluateAutonomyPolicy(autonomy.PolicyEvalRequest{
+		ProjectID: "proj-a", TenantID: "ten-a", ScopeID: "scope-a",
+		CapabilityID: "recon.network.portscan", Policy: p,
+	})
+	if d.Decision != autonomy.DecisionDeny {
+		t.Fatal(d)
+	}
+}
+
+func Test16C_LLMBudgetExhausted(t *testing.T) {
+	p := basePolicy(autonomy.ModeControlledAutonomous)
+	d, _ := autonomy.EvaluateAutonomyPolicy(autonomy.PolicyEvalRequest{
+		ProjectID: "proj-a", TenantID: "ten-a", ScopeID: "scope-a",
+		CapabilityID: "recon.network.portscan", Policy: p, LLMCallsUsed: p.MaxLLMCalls,
+	})
+	if d.Decision != autonomy.DecisionStop {
+		t.Fatal(d)
+	}
+}
+
+func Test16C_CooldownActive(t *testing.T) {
+	p := basePolicy(autonomy.ModeControlledAutonomous)
+	p.Cooldown = time.Minute
+	now := time.Now().UTC()
+	d, _ := autonomy.EvaluateAutonomyPolicy(autonomy.PolicyEvalRequest{
+		ProjectID: "proj-a", TenantID: "ten-a", ScopeID: "scope-a",
+		CapabilityID: "recon.network.portscan", Policy: p, Now: now, NextAllowedAt: now.Add(time.Minute),
+	})
+	if d.Decision != autonomy.DecisionDeny || d.Reason != "cooldown_active" {
+		t.Fatal(d)
+	}
+}
+
+func Test16C_NoProgressExceeded(t *testing.T) {
+	p := basePolicy(autonomy.ModeControlledAutonomous)
+	p.MaxNoProgress = 3
+	d, _ := autonomy.EvaluateAutonomyPolicy(autonomy.PolicyEvalRequest{
+		ProjectID: "proj-a", TenantID: "ten-a", ScopeID: "scope-a",
+		CapabilityID: "recon.network.portscan", Policy: p, NoProgressCount: 3,
+	})
+	if d.Decision != autonomy.DecisionStop {
 		t.Fatal(d)
 	}
 }

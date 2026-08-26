@@ -85,7 +85,8 @@ func (h *AdvanceHandoff) Execute(ctx context.Context, req HandoffRequest) (*Hand
 		PrincipalID: run.PrincipalID, CorrelationID: run.CorrelationID,
 		CapabilityID: cap, StepsExecuted: run.StepsConsumed,
 		RuntimeElapsed: h.Controller.now().Sub(run.StartedAt),
-		Policy:         run.Policy,
+		Policy:         run.Policy, LLMCallsUsed: run.LLMCallsUsed, NextAllowedAt: run.NextAllowedAt,
+		NoProgressCount: run.NoProgressCount, Now: h.Controller.now(),
 	})
 	out.PolicyDecision = dec
 	if err != nil {
