@@ -102,3 +102,6 @@ Never claim PG durability verified when tests were skipped.
 
 
 **Phase 13 frozen at tag `v0.13.0`.** AutonomyRun is in-process; configure Brain providers via secret refs. Process tools remain fail-closed.
+
+
+**Phase 14 frozen at tag `v0.14.0`.** Apply migration `014_autonomy_runs.sql` for durable autonomy. Process tools remain fail-closed.

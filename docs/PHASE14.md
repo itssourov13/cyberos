@@ -1,4 +1,4 @@
-# Phase 14 — Durable Autonomy & Handoff (in progress)
+# Phase 14 — Durable Autonomy & Controlled Handoff (**FROZEN** at `v0.14.0`)
 
 | Sub-phase | Focus | Status |
 |-----------|--------|--------|
@@ -6,31 +6,69 @@
 | **14B** | Orchestrator.Advance handoff | Done |
 | **14C** | Operator API/SDK | Done |
 | **14D** | Lineage/budget/reconciliation security audit | Done |
-| **14E** | Freeze | Not started |
+| **14E** | Final audit + freeze | Done |
 
-## 14A
+## Architecture
 
-AutonomyRunRepository (memory + PostgreSQL migration 014). Controller.Repo optional persist.
-No Orchestrator.Advance. No Grant persistence.
+```
+Human / External Brain (JARVIS/Zoya/LLM)
+        │ API/SDK + Auth
+        ▼
+Autonomy Controller (durable run, lineage, budgets, cancel)
+        │
+Autonomy Policy (eligibility only — not a Grant)
+        │ MayAdvance
+        ▼
+Advance Handoff
+        │
+Workflow Orchestrator
+        │
+CP → Decision → Grant → Broker → Sandbox → Executor
+        │
+Evidence / Findings → AI Context → Re-plan
+```
 
-## 14B
+## Trust boundaries
 
-AdvanceHandoff: Policy ALLOW + CONTROLLED_AUTONOMOUS → Orchestrator.Advance.
-MANUAL/ASSISTED → WAIT. Fresh Grant remains inside Orchestrator.
+| Layer | Role |
+|-------|------|
+| Brain / Plan / Analysis | **Untrusted** proposal |
+| Autonomy Policy | **Eligibility** gate only |
+| Control Plane | **Authorization** authority |
+| Grant | **Ephemeral** per-step artifact |
+| Broker | **Sole** execution gateway |
+| Orchestrator | Workflow execution authority |
 
-## 14C Operator API
+## Modes
 
-- `POST /api/v1/autonomy/runs`
-- `GET /api/v1/autonomy/runs/{id}`
-- `POST .../cancel` | `resume` | `advance`
-SDK: StartAutonomy, GetAutonomy, CancelAutonomy, ResumeAutonomy, AdvanceAutonomy
-Advance → AdvanceHandoff only (no direct Broker).
+| Mode | Auto-advance |
+|------|----------------|
+| MANUAL | WAIT — no Orchestrator |
+| ASSISTED | WAIT — no Orchestrator |
+| CONTROLLED_AUTONOMOUS | ALLOW only if policy budgets/caps pass → Handoff → Orchestrator |
 
-## 14D Security audit
+## Durability
 
-Focused tests cover: lineage, budget persistence across restart, MANUAL/ASSISTED
-no-orchestrator, cancellation/terminal protection, project/tenant/scope isolation,
-no Grant fields in AutonomyRun JSON, start idempotency, concurrent advance safety,
-unknown policy version fail-closed, API cancel/advance regression.
+- **AutonomyRun**: memory + PostgreSQL (`014_autonomy_runs.sql`); policy snapshot, steps_consumed, cancel, version CAS
+- **WorkflowRun**: authoritative for step completion / no re-exec on restart
+- **Grant**: never persisted in autonomy state
+- Live PG verification: **SKIP** unless DSN configured (not claimed PASS)
 
-Live PG autonomy verification: SKIP unless DSN configured (not claimed PASS).
+## API / SDK
+
+- `POST/GET /api/v1/autonomy/runs`, `.../cancel`, `.../resume`, `.../advance`
+- SDK: `StartAutonomy`, `GetAutonomy`, `CancelAutonomy`, `ResumeAutonomy`, `AdvanceAutonomy`
+- Advance → `AdvanceHandoff` only (no direct Broker/GrantIssuer)
+
+## Limitations
+
+1. Live PostgreSQL autonomy durability not verified without DSN.
+2. External JARVIS/Zoya product, event bus, remote workers — future.
+3. Full E2E Orchestrator materialization may require packs/lifecycle wiring in deployment.
+4. Autonomy continuous re-plan loop remains operator/API driven (no background daemon).
+
+## Security kernel (unchanged)
+
+```
+Scope → Auth → CP → Decision → Grant → Broker → Sandbox → Executor
+```

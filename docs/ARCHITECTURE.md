@@ -329,3 +329,8 @@ Provider-neutral Brain → Plan IR → Applicator → Workflow. AI has no execut
 ## Phase 13 (frozen at v0.13.0)
 
 Controlled autonomy: Observe→Analyze→Plan→Policy→Orchestrator→CP→Grant→Broker. AI untrusted; policy is eligibility only. See `docs/PHASE13.md`.
+
+
+## Phase 14 (frozen at v0.14.0)
+
+Durable AutonomyRun + Policy → Handoff → Orchestrator → CP→Grant→Broker. AI/policy remain non-authoritative. See `docs/PHASE14.md`.

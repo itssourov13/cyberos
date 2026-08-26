@@ -1,9 +1,9 @@
 # CYBEROS Project State
 
-**Last Updated:** 2026-08-22
+**Last Updated:** 2026-08-26
 
 ## Current
-**Phase 13 FROZEN** at tag **`v0.13.0`**.
+**Phase 14 FROZEN** at tag **`v0.14.0`**.
 
 ## Next
-Awaiting explicit approval for Phase 14 (if any).
+Awaiting explicit approval for Phase 15.
