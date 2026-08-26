@@ -66,7 +66,8 @@ func TestWorker_HeartbeatDoesNotAuthZ(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Heartbeat is liveness only — RemoteHost still refuses execution
-	rh, _ := execution.NewRemoteHost("worker-host-01")
+	asvc := execution.NewAssignmentService(memory.NewAssignmentRepo())
+	rh, _ := execution.NewRemoteHost("worker-host-01", reg, asvc)
 	_, err = rh.Execute(ctx, contracts.ExecutionRequest{})
 	if err == nil {
 		t.Fatal("remote must not execute in 17C")

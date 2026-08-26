@@ -70,3 +70,18 @@ Requires operator-configured `docker`/`podman` binary. Unit tests use a **fake**
 - Cross-project Get/Heartbeat DENY
 - URL host IDs rejected
 - No remote job dispatch in 17C
+
+## 17D — Remote Execution Lifecycle (COMPLETE)
+
+### Implemented
+- Durable `ExecutionAssignment` + `AssignmentService` (create/dispatch/claim/renew/complete/cancel/recover)
+- Memory + PostgreSQL repositories; migration `019_execution_assignments.sql`
+- `RemoteHost` creates assignment after worker auth; **no Grant persistence**
+- Idempotent dispatch by execution_id; result hash conflict detection
+- AutoComplete mode for in-process fake worker tests
+- Cancel is durable; completed cannot be claimed
+
+### Security
+- Grant validated by Broker **before** RemoteHost
+- Worker mismatch / revoked / inactive → DENY
+- No AI/Event → worker execute path
