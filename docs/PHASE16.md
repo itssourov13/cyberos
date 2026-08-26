@@ -3,7 +3,7 @@
 | Sub-phase | Focus | Status |
 |-----------|--------|--------|
 | **16A** | Production persistence & crash recovery | **Done** |
-| **16B** | Outbox concurrency (SKIP LOCKED) | Not started |
+| **16B** | Outbox concurrency (SKIP LOCKED) | **Done** |
 | **16C** | AI/autonomy LLM budgets | Not started |
 | **16D** | API rate limits / operator safety | Not started |
 | **16E** | Final audit + freeze | Not started |
@@ -35,3 +35,21 @@ AutonomyRun holds `workflow_run_id` linkage only. Workflow step completion remai
 
 ### Security
 AI / Event / Policy / Handoff do not mint Grants or call Broker.
+
+
+## 16B
+
+### Implemented
+- PostgreSQL `ClaimBatch` uses a transaction + `FOR UPDATE SKIP LOCKED` CTE (atomic claim).
+- Concurrent dispatchers cannot both own the same outbox row.
+- Per-run ordering: at most one event per `autonomy_run_id` per batch.
+- Lease recovery / active-lease protection preserved; attempts increment on claim.
+- Integration tests: concurrent claim, active lease, expired reclaim (`-tags=integration`).
+
+### Security
+Outbox claim is **ownership only** — not authorization. No Grant persistence or Broker calls.
+
+### Verification
+- Memory tests: PASS
+- Race autonomy/memory: run with suite
+- Live PG: SKIP when `CYBEROS_DATABASE_URL` unset

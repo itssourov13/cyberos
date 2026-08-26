@@ -10,7 +10,7 @@ import (
 	"cyberos/internal/storage/ports"
 )
 
-// AutonomyOutboxRepo persists autonomy_outbox (Phase 15C).
+// AutonomyOutboxRepo persists autonomy_outbox (Phase 15C / 16B atomic claim).
 type AutonomyOutboxRepo struct{ db *DB }
 
 func NewAutonomyOutboxRepo(db *DB) *AutonomyOutboxRepo { return &AutonomyOutboxRepo{db: db} }
@@ -50,69 +50,88 @@ func (r *AutonomyOutboxRepo) Enqueue(ctx context.Context, rec ports.AutonomyOutb
 	return nil
 }
 
+// ClaimBatch atomically claims up to limit rows using FOR UPDATE SKIP LOCKED.
+// At most one event per autonomy_run_id is returned (per-run ordering preserved).
+// Concurrent dispatchers cannot both successfully own the same row.
 func (r *AutonomyOutboxRepo) ClaimBatch(ctx context.Context, workerID string, limit int, lease time.Duration) ([]ports.AutonomyOutboxRecord, error) {
 	if limit <= 0 {
 		limit = 10
 	}
+	if workerID == "" {
+		workerID = "worker"
+	}
 	now := time.Now().UTC()
 	until := now.Add(lease)
-	// Simple claim: select then update (good enough for Phase 15C; not full SKIP LOCKED)
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, project_id, tenant_id, scope_id, autonomy_run_id, workflow_run_id, execution_id,
-			event_type, schema_version, idempotency_key, event_id, payload_json, status,
-			attempts, available_at, locked_until, locked_by, last_error, created_at, updated_at
-		FROM autonomy_outbox
-		WHERE (status = 'PENDING' AND available_at <= $1)
-		   OR (status = 'CLAIMED' AND (locked_until IS NULL OR locked_until < $1))
-		ORDER BY autonomy_run_id, created_at
-		LIMIT $2`, now, limit*3)
+
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("outbox claim begin: %w", err)
 	}
-	defer rows.Close()
-	var candidates []ports.AutonomyOutboxRecord
-	for rows.Next() {
-		rec, err := scanOutbox(rows)
-		if err != nil {
-			return nil, err
-		}
-		candidates = append(candidates, rec)
-	}
-	seenRun := map[string]bool{}
+	defer func() { _ = tx.Rollback() }()
+
+	seenRun := make(map[string]struct{})
 	var out []ports.AutonomyOutboxRecord
-	for _, rec := range candidates {
-		if len(out) >= limit {
+
+	for len(out) < limit {
+		// Atomic single-row claim: lock + update in one statement via CTE.
+		// SKIP LOCKED skips rows already locked by other transactions.
+		row := tx.QueryRowContext(ctx, `
+			WITH candidate AS (
+				SELECT id
+				FROM autonomy_outbox
+				WHERE status NOT IN ('DELIVERED', 'DEAD_LETTER')
+				  AND (
+					(status = 'PENDING' AND available_at <= $1)
+					OR (status = 'CLAIMED' AND (locked_until IS NULL OR locked_until < $1))
+				  )
+				  AND NOT (COALESCE(NULLIF(autonomy_run_id, ''), id) = ANY($4::text[]))
+				ORDER BY autonomy_run_id, created_at, id
+				FOR UPDATE SKIP LOCKED
+				LIMIT 1
+			)
+			UPDATE autonomy_outbox o
+			SET status = 'CLAIMED',
+			    locked_by = $2,
+			    locked_until = $3,
+			    attempts = attempts + 1,
+			    updated_at = $1
+			FROM candidate c
+			WHERE o.id = c.id
+			RETURNING o.id, o.project_id, o.tenant_id, o.scope_id, o.autonomy_run_id, o.workflow_run_id, o.execution_id,
+				o.event_type, o.schema_version, o.idempotency_key, o.event_id, o.payload_json, o.status,
+				o.attempts, o.available_at, o.locked_until, o.locked_by, o.last_error, o.created_at, o.updated_at`,
+			now, workerID, until, runKeys(seenRun),
+		)
+		rec, err := scanOutbox(row)
+		if err == sql.ErrNoRows || err == contracts.ErrNotFound {
 			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("outbox claim: %w", err)
 		}
 		rk := rec.AutonomyRunID
 		if rk == "" {
 			rk = rec.ID
 		}
-		if seenRun[rk] {
-			continue
-		}
-		res, err := r.db.ExecContext(ctx, `
-			UPDATE autonomy_outbox SET status='CLAIMED', locked_by=$1, locked_until=$2,
-				attempts=attempts+1, updated_at=$2
-			WHERE id=$3 AND (
-				(status='PENDING' AND available_at <= $2)
-				OR (status='CLAIMED' AND (locked_until IS NULL OR locked_until < $2))
-			)`, workerID, until, rec.ID)
-		if err != nil {
-			continue
-		}
-		n, _ := res.RowsAffected()
-		if n == 0 {
-			continue
-		}
-		seenRun[rk] = true
-		rec.Status = ports.OutboxClaimed
-		rec.LockedBy = workerID
-		rec.LockedUntil = until
-		rec.Attempts++
+		seenRun[rk] = struct{}{}
 		out = append(out, rec)
 	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("outbox claim commit: %w", err)
+	}
 	return out, nil
+}
+
+func runKeys(seen map[string]struct{}) []string {
+	if len(seen) == 0 {
+		return []string{}
+	}
+	keys := make([]string, 0, len(seen))
+	for k := range seen {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 func (r *AutonomyOutboxRepo) MarkDelivered(ctx context.Context, id string, workerID string) error {
