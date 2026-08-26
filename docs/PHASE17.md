@@ -52,3 +52,21 @@ Broker → HostRegistry → ContainerHost → ContainerRuntime → hardened cont
 
 ### Live runtime
 Requires operator-configured `docker`/`podman` binary. Unit tests use a **fake** runtime.
+
+## 17C — Worker Identity (COMPLETE)
+
+### Implemented
+- Worker identity + lifecycle: PENDING → ACTIVE → SUSPENDED → REVOKED/EXPIRED
+- WorkerRegistry (register, activate, suspend, revoke, heartbeat, authenticate)
+- Memory + PostgreSQL repositories; migration `018_execution_workers.sql`
+- Host↔worker binding (unique per project)
+- Credential **ref** + cert fingerprint only (no private keys)
+- RemoteHost stub: **Execute always rejects** until 17D
+- Operator API: register/get/suspend/revoke/heartbeat under `/api/v1/projects/{project}/workers`
+
+### Security
+- Worker ≠ GrantIssuer / CP / Broker
+- Heartbeat ≠ authorization
+- Cross-project Get/Heartbeat DENY
+- URL host IDs rejected
+- No remote job dispatch in 17C

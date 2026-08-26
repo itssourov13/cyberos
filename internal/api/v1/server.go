@@ -12,6 +12,7 @@ import (
 	"cyberos/internal/contracts"
 	"cyberos/internal/controlplane"
 	"cyberos/internal/events"
+	"cyberos/internal/execution"
 	"cyberos/internal/sdk"
 	"cyberos/pkg/version"
 )
@@ -21,7 +22,8 @@ type Server struct {
 	SDK     *sdk.Client
 	hub     *events.Hub
 	Auth    *auth.Middleware // optional; when set, protects API routes
-	Limiter *SafetyLimiter   // Phase 16D process-local AI/autonomy rate limits
+	Limiter *SafetyLimiter          // Phase 16D process-local AI/autonomy rate limits
+	Workers *execution.WorkerRegistry // Phase 17C identity only
 }
 
 // NewServer constructs an API server.
@@ -79,6 +81,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/workflow/runs", s.StartWorkflowRun)
 	mux.HandleFunc("POST /api/v1/workflow/runs/{id}/advance", s.AdvanceWorkflowRun)
 	mux.HandleFunc("POST /api/v1/workflow/runs/{id}/cancel", s.CancelWorkflowRun)
+	s.registerWorkerRoutes(mux)
 	// Web UI foundation (static)
 	mux.Handle("/ui/", http.StripPrefix("/ui/", uiFileServer()))
 	mux.HandleFunc("/", s.handleRoot)
