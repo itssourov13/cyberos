@@ -28,3 +28,27 @@ ContainerHost, RemoteHost, worker identity, mTLS, marketplace, JARVIS
 | Unknown host | DENY |
 | Event/AI → Host | No direct path |
 | Host → GrantIssuer | Forbidden / absent |
+
+## 17B — ContainerHost (COMPLETE)
+
+### Architecture
+```
+Broker → HostRegistry → ContainerHost → ContainerRuntime → hardened container
+```
+
+- HostID `container` (logical; not a URL)
+- Default empty HostID remains **local** (17A compatibility)
+- Grant validated **before** ContainerHost / runtime
+
+### Security defaults
+- Privileged: **forbidden**
+- Docker socket mount: **forbidden**
+- Host network: **forbidden** (network=none required)
+- Arbitrary host mounts: **forbidden**
+- Image: **allowlisted** only
+- Non-root user (`65534:65534`), no-new-privileges, read-only root
+- Memory / PIDs / output / timeout bounded
+- CLI runtime uses `exec.CommandContext` argv arrays (no shell)
+
+### Live runtime
+Requires operator-configured `docker`/`podman` binary. Unit tests use a **fake** runtime.
