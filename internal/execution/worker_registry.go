@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"cyberos/internal/contracts"
+	"cyberos/internal/execution/mtls"
 	"cyberos/internal/storage/ports"
 )
 
@@ -154,4 +155,33 @@ func recordToWorker(rec ports.WorkerRecord) Worker {
 		Capabilities: rec.Capabilities, CreatedAt: rec.CreatedAt, UpdatedAt: rec.UpdatedAt,
 		LastSeenAt: rec.LastSeenAt, ExpiresAt: rec.ExpiresAt, Version: rec.Version,
 	}
+}
+
+// AuthenticateTLS binds a verified TLS peer identity to a registered worker (Phase 22A).
+// peerFingerprint must come from mtls.ExtractPeerIdentity after a successful handshake.
+// Does NOT authorize execution or mint Grants.
+func (r *WorkerRegistry) AuthenticateTLS(ctx context.Context, projectID contracts.ProjectID, workerID, hostID, peerFingerprint string) (Worker, error) {
+	w, err := r.Get(ctx, projectID, workerID)
+	if err != nil {
+		return Worker{}, err
+	}
+	if string(w.HostID) != hostID {
+		return Worker{}, fmt.Errorf("%w: worker host mismatch", contracts.ErrForbidden)
+	}
+	if err := mtls.Bind(mtls.PeerIdentity{Fingerprint: peerFingerprint}, mtls.BindRequest{
+		ProjectID:   string(projectID),
+		WorkerID:    workerID,
+		HostID:      hostID,
+		Fingerprint: w.CertFingerprint,
+		Status:      string(w.Status),
+	}); err != nil {
+		return Worker{}, fmt.Errorf("%w: %v", contracts.ErrForbidden, err)
+	}
+	if w.Status != WorkerActive {
+		return Worker{}, fmt.Errorf("%w: worker not active", contracts.ErrForbidden)
+	}
+	if err := w.CanAuthenticate(r.now()); err != nil {
+		return Worker{}, err
+	}
+	return w, nil
 }
