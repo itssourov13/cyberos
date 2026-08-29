@@ -37,6 +37,7 @@ type Production struct {
 	Keys       auth.KeyStore
 	PackTrust  tools.TrustStorePort
 	SignerKeys tools.SignerKeyRegistryPort
+	TrustAdmin *tools.TrustAdmin
 }
 
 // Close closes the database connection.
@@ -127,7 +128,8 @@ func NewProduction(ctx context.Context, cfg *config.Config, migrationsDir string
 	if c.Workflow != nil && repos.WorkflowRuns != nil {
 		c.Workflow.WithRepository(repos.WorkflowRuns)
 	}
-	return &Production{Client: c, DB: db, Auth: authenticator, Keys: keyStore, PackTrust: packTrust, SignerKeys: signerKeys}, nil
+	trustAdmin := &tools.TrustAdmin{Store: packTrust, Keys: signerKeys, Audit: c.Audit}
+	return &Production{Client: c, DB: db, Auth: authenticator, Keys: keyStore, PackTrust: packTrust, SignerKeys: signerKeys, TrustAdmin: trustAdmin}, nil
 }
 
 // UseProduction reports whether config selects the durable production path.

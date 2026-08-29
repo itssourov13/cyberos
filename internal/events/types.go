@@ -17,6 +17,13 @@ const (
 	TypeTaskStateChanged   contracts.EventType = "task.state_changed"
 	TypeScopeCreated       contracts.EventType = "scope.created"
 	TypePrincipalCreated   contracts.EventType = "principal.created"
+	TypePackTrusted        contracts.EventType = "trust.pack.trusted"
+	TypePackRevoked        contracts.EventType = "trust.pack.revoked"
+	TypeSignerRegistered   contracts.EventType = "trust.signer.registered"
+	TypeSignerDisabled     contracts.EventType = "trust.signer.disabled"
+	TypeSignerRevoked      contracts.EventType = "trust.signer.revoked"
+	TypeGrantRejected      contracts.EventType = "grant.rejected"
+	TypePackBindRejected   contracts.EventType = "broker.pack_bind.rejected"
 
 	// Task runner lifecycle (Phase 3C) — facts only; not authorization.
 	TypeRunnerPromoted  contracts.EventType = "runner.task.promoted"

@@ -247,6 +247,57 @@ func (s *Service) All() []Entry {
 	return out
 }
 
+// RecordTrustMutation audits operator trust/signer lifecycle changes (Phase 21).
+// Observability only — does not authorize execution.
+func (s *Service) RecordTrustMutation(action string, principal contracts.PrincipalRef, project contracts.ProjectID, digest, keyID, reason, correlation string, meta map[string]string) (Entry, error) {
+	if meta == nil {
+		meta = map[string]string{}
+	}
+	if digest != "" {
+		meta["pack_content_digest"] = digest
+	}
+	if keyID != "" {
+		meta["pack_key_id"] = keyID
+	}
+	eventType := contracts.EventType("trust.mutation")
+	switch action {
+	case "PACK_TRUSTED":
+		eventType = events.TypePackTrusted
+	case "PACK_REVOKED":
+		eventType = events.TypePackRevoked
+	case "SIGNER_REGISTERED":
+		eventType = events.TypeSignerRegistered
+	case "SIGNER_DISABLED":
+		eventType = events.TypeSignerDisabled
+	case "SIGNER_REVOKED":
+		eventType = events.TypeSignerRevoked
+	}
+	var pref *contracts.PrincipalRef
+	if principal.ID != "" {
+		p := principal
+		pref = &p
+	}
+	corr := contracts.CorrelationID(correlation)
+	if corr == "" {
+		corr = contracts.CorrelationID("trust-" + action)
+	}
+	payload := map[string]any{"action": action, "reason": reason}
+	for k, v := range meta {
+		payload[k] = v
+	}
+	return s.append(Entry{
+		ID:            contracts.AuditID("audit-trust-" + string(corr) + "-" + action),
+		Action:        action,
+		Timestamp:     time.Now().UTC(),
+		Principal:     pref,
+		ProjectID:     project,
+		CorrelationID: corr,
+		Outcome:       "SUCCEEDED",
+		Reason:        reason,
+		Metadata:      meta,
+	}, eventType, payload)
+}
+
 // ByCorrelation returns audit entries for a correlation ID.
 func (s *Service) ByCorrelation(id contracts.CorrelationID) []Entry {
 	s.mu.RLock()
