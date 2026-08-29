@@ -30,3 +30,13 @@ Grant + Broker remain the sole authorization/execution path.
 - `ReplayGuard` on ResultID
 
 Private keys never in DB/events.
+
+## 22C — Revocation, Replay & Fail-Closed (COMPLETE)
+
+- Complete() rejects expired leases and invalid statuses
+- Result key `Revoke`/`Disable` fail-closed
+- Concurrent ReplayGuard: exactly one accept
+- Revoked worker AuthenticateTLS DENY
+- Concurrent claim: wrong worker DENY; authorized claims safe
+
+LIVE: UNVERIFIED without DSN/fleet

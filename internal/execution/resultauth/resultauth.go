@@ -129,6 +129,11 @@ func (r *KeyRegistry) Disable(workerID string) {
 	r.disabled[workerID] = true
 }
 
+// Revoke permanently disables the worker result key (Phase 22C).
+func (r *KeyRegistry) Revoke(workerID string) {
+	r.Disable(workerID)
+}
+
 func (r *KeyRegistry) Get(workerID string) (ed25519.PublicKey, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

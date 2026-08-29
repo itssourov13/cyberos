@@ -73,6 +73,13 @@ func NewAssignmentService(repo ports.AssignmentRepository) *AssignmentService {
 	return &AssignmentService{repo: repo, now: func() time.Time { return time.Now().UTC() }}
 }
 
+// SetNow overrides the clock for tests (Phase 22C).
+func (s *AssignmentService) SetNow(fn func() time.Time) {
+	if s != nil && fn != nil {
+		s.now = fn
+	}
+}
+
 // CreateFromGrant binds Grant identity into a new PENDING assignment (Phase 22B).
 func (s *AssignmentService) CreateFromGrant(ctx context.Context, g contracts.ExecutionGrant, host HostID, workerID, assignmentID string) (ExecutionAssignment, error) {
 	if err := g.Validate(); err != nil {
@@ -169,6 +176,7 @@ func (s *AssignmentService) RenewLease(ctx context.Context, projectID contracts.
 }
 
 // Complete accepts an authenticated worker result (idempotent on same hash).
+// Phase 22C: expired lease and terminal states fail closed.
 func (s *AssignmentService) Complete(ctx context.Context, projectID contracts.ProjectID, id, workerID, resultHash, resultStatus, errMsg string) (ExecutionAssignment, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -189,6 +197,12 @@ func (s *AssignmentService) Complete(ctx context.Context, projectID contracts.Pr
 		return ExecutionAssignment{}, fmt.Errorf("%w: assignment terminal", contracts.ErrConflict)
 	}
 	now := s.now()
+	if !a.LeaseUntil.IsZero() && now.After(a.LeaseUntil) {
+		return ExecutionAssignment{}, fmt.Errorf("%w: lease expired", contracts.ErrConflict)
+	}
+	if a.Status != AssignClaimed && a.Status != AssignRunning && a.Status != AssignDispatched {
+		return ExecutionAssignment{}, fmt.Errorf("%w: cannot complete from %s", contracts.ErrConflict, a.Status)
+	}
 	a.Status = AssignCompleted
 	if resultStatus == "FAILED" {
 		a.Status = AssignFailed
