@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"cyberos/internal/contracts"
 	"cyberos/internal/storage/ports"
@@ -106,4 +107,41 @@ func scanAssignment(row assignmentScannable) (ports.AssignmentRecord, error) {
 		a.CancelledAt = canc.Time
 	}
 	return a, nil
+}
+
+// ClaimAtomic uses conditional UPDATE for multi-node-safe claim (Phase 20).
+// Claimable: DISPATCHED/PENDING for matching worker, or expired CLAIMED/RUNNING lease.
+func (r *AssignmentRepo) ClaimAtomic(ctx context.Context, projectID contracts.ProjectID, id, workerID string, leaseUntil time.Time) (ports.AssignmentRecord, error) {
+	now := time.Now().UTC()
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE execution_assignments SET
+			status = 'CLAIMED',
+			started_at = COALESCE(started_at, $1),
+			lease_until = $2,
+			version = version + 1
+		WHERE project_id = $3 AND id = $4 AND worker_id = $5
+		  AND (
+			status IN ('DISPATCHED', 'PENDING')
+			OR (status IN ('CLAIMED', 'RUNNING') AND (lease_until IS NULL OR lease_until < $1))
+		  )
+		  AND status NOT IN ('COMPLETED', 'FAILED', 'CANCELLED', 'EXPIRED')
+	`, now, nullTimeWorker(leaseUntil), string(projectID), id, workerID)
+	if err != nil {
+		return ports.AssignmentRecord{}, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		// Idempotent: already claimed by same worker with valid lease
+		a, gerr := r.Get(ctx, projectID, id)
+		if gerr != nil {
+			return ports.AssignmentRecord{}, contracts.ErrConflict
+		}
+		if a.WorkerID == workerID && (a.Status == "CLAIMED" || a.Status == "RUNNING") {
+			if a.LeaseUntil.IsZero() || now.Before(a.LeaseUntil) {
+				return a, nil
+			}
+		}
+		return ports.AssignmentRecord{}, contracts.ErrConflict
+	}
+	return r.Get(ctx, projectID, id)
 }

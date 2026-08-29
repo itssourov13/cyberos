@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"sync"
+	"time"
 
 	"cyberos/internal/contracts"
 	"cyberos/internal/storage/ports"
@@ -74,6 +75,40 @@ func (r *AssignmentRepo) Update(_ context.Context, a ports.AssignmentRecord) err
 	a.Version = cur.Version + 1
 	r.byID[k] = a
 	return nil
+}
+
+func (r *AssignmentRepo) ClaimAtomic(_ context.Context, projectID contracts.ProjectID, id, workerID string, leaseUntil time.Time) (ports.AssignmentRecord, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := assignKey(projectID, id)
+	a, ok := r.byID[k]
+	if !ok {
+		return ports.AssignmentRecord{}, contracts.ErrNotFound
+	}
+	if a.WorkerID != workerID {
+		return ports.AssignmentRecord{}, contracts.ErrForbidden
+	}
+	now := time.Now().UTC()
+	switch a.Status {
+	case "COMPLETED", "FAILED", "CANCELLED", "EXPIRED":
+		return ports.AssignmentRecord{}, contracts.ErrConflict
+	case "CLAIMED", "RUNNING":
+		if !a.LeaseUntil.IsZero() && now.Before(a.LeaseUntil) {
+			return a, nil // idempotent
+		}
+	case "DISPATCHED", "PENDING":
+		// claimable
+	default:
+		return ports.AssignmentRecord{}, contracts.ErrConflict
+	}
+	a.Status = "CLAIMED"
+	if a.StartedAt.IsZero() {
+		a.StartedAt = now
+	}
+	a.LeaseUntil = leaseUntil
+	a.Version++
+	r.byID[k] = a
+	return a, nil
 }
 
 var _ ports.AssignmentRepository = (*AssignmentRepo)(nil)

@@ -38,4 +38,8 @@ type AssignmentRepository interface {
 	Get(ctx context.Context, projectID contracts.ProjectID, id string) (AssignmentRecord, error)
 	GetByExecutionID(ctx context.Context, projectID contracts.ProjectID, executionID string) (AssignmentRecord, error)
 	Update(ctx context.Context, a AssignmentRecord) error
+	// ClaimAtomic claims assignment for workerID if claimable (Phase 20 multi-node).
+	// Returns ErrConflict if lost the race. LeaseDuration applied by caller via LeaseUntil.
+	ClaimAtomic(ctx context.Context, projectID contracts.ProjectID, id, workerID string, leaseUntil time.Time) (AssignmentRecord, error)
 }
+

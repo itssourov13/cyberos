@@ -116,37 +116,15 @@ func (s *AssignmentService) Dispatch(ctx context.Context, projectID contracts.Pr
 	return a, nil
 }
 
-// Claim atomically claims DISPATCHED/expired lease for workerID.
+// Claim atomically claims DISPATCHED/expired lease for workerID (Phase 20: ClaimAtomic).
 func (s *AssignmentService) Claim(ctx context.Context, projectID contracts.ProjectID, id, workerID string, lease time.Duration) (ExecutionAssignment, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	a, err := s.get(ctx, projectID, id)
+	now := s.now()
+	leaseUntil := now.Add(lease)
+	rec, err := s.repo.ClaimAtomic(ctx, projectID, id, workerID, leaseUntil)
 	if err != nil {
 		return ExecutionAssignment{}, err
 	}
-	if a.WorkerID != workerID {
-		return ExecutionAssignment{}, fmt.Errorf("%w: worker mismatch", contracts.ErrForbidden)
-	}
-	if a.IsTerminal() {
-		return ExecutionAssignment{}, fmt.Errorf("%w: assignment terminal", contracts.ErrConflict)
-	}
-	now := s.now()
-	if a.Status == AssignClaimed || a.Status == AssignRunning {
-		if !a.LeaseUntil.IsZero() && now.Before(a.LeaseUntil) {
-			// Already owned — idempotent if same worker
-			return a, nil
-		}
-	}
-	if a.Status != AssignDispatched && a.Status != AssignPending && a.Status != AssignClaimed && a.Status != AssignRunning {
-		return ExecutionAssignment{}, fmt.Errorf("%w: cannot claim from %s", contracts.ErrConflict, a.Status)
-	}
-	a.Status = AssignClaimed
-	a.StartedAt = now
-	a.LeaseUntil = now.Add(lease)
-	if err := s.repo.Update(ctx, assignmentToRecord(a)); err != nil {
-		return ExecutionAssignment{}, err
-	}
-	return a, nil
+	return recordToAssignment(rec), nil
 }
 
 // RenewLease extends ownership.
