@@ -71,6 +71,16 @@ func (a *App) Run(args []string) int {
 		return a.cmdCases(args[1:])
 	case "reports":
 		return a.cmdReports(args[1:])
+	case "status":
+		return a.cmdStatus()
+	case "doctor":
+		return a.cmdDoctor()
+	case "trust":
+		return a.cmdTrust(args[1:])
+	case "workers":
+		return a.cmdWorkers(args[1:])
+	case "assignments":
+		return a.cmdAssignments(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		printHelp()
@@ -100,9 +110,15 @@ Usage:
   cyberos risks list|get|finding|asset|assessment|summary
   cyberos cases list|get|create|status
   cyberos reports list|get|export
+  cyberos status
+  cyberos doctor
+  cyberos trust list|help
+  cyberos workers help
+  cyberos assignments help
   cyberos serve
 
 Sensitive operations use Control Plane → Grant → Broker → Sandbox.
+TrustAdmin is SERVICE-gated. CLI does not mint Grants or call Host directly.
 `)
 }
 
@@ -647,4 +663,82 @@ func (a *App) cmdReports(args []string) int {
 	default:
 		return 1
 	}
+}
+
+// cmdStatus reports non-secret readiness of wired services.
+func (a *App) cmdStatus() int {
+	out := map[string]any{
+		"cli":            "ok",
+		"sdk_wired":      a.SDK != nil,
+		"control_plane":  a.SDK != nil && a.SDK.Control != nil,
+		"broker":         a.SDK != nil && a.SDK.Broker != nil,
+		"note":           "CLI is an operator surface; Broker remains sole execution gateway",
+	}
+	b, _ := json.MarshalIndent(out, "", "  ")
+	fmt.Println(string(b))
+	return 0
+}
+
+// cmdDoctor runs non-secret diagnostic checks (fail-closed; no memory fallback).
+func (a *App) cmdDoctor() int {
+	issues := []string{}
+	if a.SDK == nil {
+		issues = append(issues, "sdk not configured")
+	} else {
+		if a.SDK.Control == nil {
+			issues = append(issues, "control plane not wired")
+		}
+		if a.SDK.Broker == nil {
+			issues = append(issues, "broker not wired")
+		}
+	}
+	status := "healthy"
+	code := 0
+	if len(issues) > 0 {
+		status = "degraded"
+		code = 5
+	}
+	out := map[string]any{"status": status, "issues": issues, "security": "no auto-fallback to insecure mode"}
+	b, _ := json.MarshalIndent(out, "", "  ")
+	fmt.Println(string(b))
+	return code
+}
+
+// cmdTrust documents TrustAdmin boundary; mutations require SERVICE principal via TrustAdmin API.
+func (a *App) cmdTrust(args []string) int {
+	if len(args) == 0 || args[0] == "help" || args[0] == "list" {
+		fmt.Print(`trust (SERVICE-gated TrustAdmin)
+
+  cyberos trust help
+
+Mutations (trust/revoke pack, key register/disable/revoke) must go through
+authenticated SERVICE principal → TrustAdmin → TrustStore.
+
+CLI cannot inject EffectivePackTrust or AUTHORIZED.
+TRUSTED != AUTHORIZED. Execution still requires CP → Grant → Broker.
+`)
+		return 0
+	}
+	fmt.Fprintf(os.Stderr, "trust: unsupported subcommand %q (use TrustAdmin service for mutations)\n", args[0])
+	return 4
+}
+
+func (a *App) cmdWorkers(args []string) int {
+	fmt.Print(`workers
+
+Operational visibility for WorkerID/ProjectID/HostID/status.
+Transport identity is established via mTLS (Phase 22A); CLI cannot override it.
+Use registry services / API for list/get when wired in production.
+`)
+	return 0
+}
+
+func (a *App) cmdAssignments(args []string) int {
+	fmt.Print(`assignments
+
+Assignment binds GrantID + PackContentDigest (Phase 22B).
+Claim/complete use ClaimAtomic and signed result verification.
+CLI cannot complete without server-side VerifyCompletion.
+`)
+	return 0
 }
