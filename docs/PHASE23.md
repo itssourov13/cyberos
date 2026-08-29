@@ -19,3 +19,10 @@ TRUSTED ≠ AUTHORIZED. EffectivePackTrust not client-controlled.
 
 ### Web UI readiness
 **READY WITH LIMITATIONS** — operator CLI improved; live remote still unverified.
+
+## 23C — Docs + live harness (COMPLETE)
+
+- README status aligned to spine
+- docs/CLI.md, WORKERS.md, TRUST.md
+- tests/integration live gates (Skip without env)
+- Live PG/mTLS: SKIPPED without DATABASE_URL / CYBEROS_TEST_CA

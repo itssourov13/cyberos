@@ -8,9 +8,23 @@ This is **not** merely a scanner, pentesting toolkit, dashboard, or AI chatbot. 
 
 ## Status
 
-**Phase 0 — Foundation** (current)
+**Phase 23C — Documentation & live verification harness** (current HEAD)
 
-Clean, buildable Go repository with architecture, documentation, state management, and package boundaries established. No domain logic or execution yet.
+Security spine through Phase 22 is implemented and unit-tested. CLI operator surfaces (23B) available.
+Live PostgreSQL / mTLS worker verification: **SKIPPED unless `DATABASE_URL` / cert env is set**.
+
+### Security spine (authoritative)
+
+```
+Scope → Auth → Control Plane → Decision → Grant → Broker → Host → Sandbox → Executor
+```
+
+Remote: `Broker → RemoteHost → mTLS Worker → Assignment → Signed Result → Verify → Audit`
+
+- Broker is the **sole execution gateway**
+- TRUSTED ≠ AUTHORIZED; PackKeyID is provenance only
+- CLI/API are operator surfaces, not authorization kernels
+- AI/Event cannot mint Grants or call Broker
 
 ## Core Principles
 
