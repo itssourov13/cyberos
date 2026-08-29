@@ -40,3 +40,14 @@ Private keys never in DB/events.
 - Concurrent claim: wrong worker DENY; authorized claims safe
 
 LIVE: UNVERIFIED without DSN/fleet
+
+## 22D — Final Audit (COMPLETE)
+
+| Check | Status |
+|-------|--------|
+| Unit/regression 18–22C | PASS |
+| Race execution/tools/broker/CP | PASS |
+| E2E assignment→signed result chain | UNIT |
+| Live PG / mTLS / worker / Docker | SKIPPED |
+| InsecureSkipVerify | absent (tests assert false) |
+| Release | READY WITH DOCUMENTED LIMITATIONS |
