@@ -141,8 +141,8 @@ func (r *SignerKeyRegistry) Revoke(keyID string) error {
 
 // TrustEvaluator combines crypto verification + policy (not authorization).
 type TrustEvaluator struct {
-	Keys   *SignerKeyRegistry
-	Store  *TrustStore
+	Keys   SignerKeyRegistryPort
+	Store  TrustStorePort
 	Policy *TrustPolicy
 }
 

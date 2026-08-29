@@ -31,10 +31,12 @@ import (
 
 // Production is a PostgreSQL-backed SDK client for durable deployments (Phase 7C).
 type Production struct {
-	Client *Client
-	DB     *postgres.DB
-	Auth   *auth.APIKeyAuthenticator
-	Keys   auth.KeyStore
+	Client     *Client
+	DB         *postgres.DB
+	Auth       *auth.APIKeyAuthenticator
+	Keys       auth.KeyStore
+	PackTrust  tools.TrustStorePort
+	SignerKeys tools.SignerKeyRegistryPort
 }
 
 // Close closes the database connection.
@@ -68,6 +70,8 @@ func NewProduction(ctx context.Context, cfg *config.Config, migrationsDir string
 
 	repos := postgres.NewRepositories(db)
 	keyStore := postgres.NewAPIKeyStore(db)
+	packTrust := postgres.NewPackTrustRepo(db)
+	signerKeys := postgres.NewSignerKeyRepo(db)
 
 	ev := evidence.NewService()
 	evStore := events.NewStore().WithBackend(postgres.NewEventBackend(db))
@@ -123,7 +127,7 @@ func NewProduction(ctx context.Context, cfg *config.Config, migrationsDir string
 	if c.Workflow != nil && repos.WorkflowRuns != nil {
 		c.Workflow.WithRepository(repos.WorkflowRuns)
 	}
-	return &Production{Client: c, DB: db, Auth: authenticator, Keys: keyStore}, nil
+	return &Production{Client: c, DB: db, Auth: authenticator, Keys: keyStore, PackTrust: packTrust, SignerKeys: signerKeys}, nil
 }
 
 // UseProduction reports whether config selects the durable production path.

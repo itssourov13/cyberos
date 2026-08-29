@@ -19,3 +19,21 @@ Phase 18 allowed pack trust to influence CP eligibility, but `ExecutionGrant` di
 
 ### NOT in 19A
 Durable TrustStore (19B), freeze/tag (19C)
+
+## 19B — Durable Trust & Signer Keys (COMPLETE)
+
+### Persistence
+- `migrations/020_pack_trust.sql` — `signer_keys`, `pack_trust`
+- Ports: `TrustStorePort`, `SignerKeyRegistryPort`
+- Memory: existing `TrustStore` / `SignerKeyRegistry`
+- PostgreSQL: `PackTrustRepo`, `SignerKeyRepo`
+- Production wires PG repos when DSN present
+
+### Security
+- Public keys only in DB
+- Project-scoped pack trust; global signer keys
+- DB errors must not yield TRUSTED (IsTrusted → false on error)
+- 19A Grant/Broker pack binding unchanged
+
+### NOT in 19B
+Admin trust API, marketplace, JARVIS, private key storage

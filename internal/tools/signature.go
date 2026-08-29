@@ -164,7 +164,7 @@ type PackVerificationResult struct {
 
 // VerifyPackSignature verifies Ed25519 signature against the trusted registry.
 // Signature ≠ trust ≠ authorization.
-func VerifyPackSignature(f PackFile, reg *SignerKeyRegistry) PackVerificationResult {
+func VerifyPackSignature(f PackFile, reg SignerKeyRegistryPort) PackVerificationResult {
 	out := PackVerificationResult{}
 	if err := f.Validate(); err != nil {
 		out.Reason = "INVALID_PACK"
@@ -230,7 +230,7 @@ func VerifyPackSignature(f PackFile, reg *SignerKeyRegistry) PackVerificationRes
 }
 
 // VerifyPack applies the requested verification mode.
-func VerifyPack(f PackFile, reg *SignerKeyRegistry, mode VerificationMode) PackVerificationResult {
+func VerifyPack(f PackFile, reg SignerKeyRegistryPort, mode VerificationMode) PackVerificationResult {
 	if mode == "" {
 		mode = VerifyLegacy
 	}
