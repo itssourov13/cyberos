@@ -40,6 +40,9 @@ type IssueRequest struct {
 	Now time.Time
 	// Constraints optional.
 	Constraints contracts.ExecutionGrantConstraints
+	// Pack binding from server-resolved trust (Phase 19A).
+	PackContentDigest string
+	PackKeyID         string
 }
 
 // Issue creates an ExecutionGrant only if the Control Plane decision is ALLOWED.
@@ -99,18 +102,20 @@ func (i *Issuer) Issue(_ context.Context, req IssueRequest) (*domaingrant.Grant,
 	}
 
 	g := contracts.ExecutionGrant{
-		ID:            contracts.ExecutionGrantID("grant-" + nonce[:12]),
-		Principal:     principal,
-		ProjectID:     projectID,
-		ScopeID:       scopeID,
-		TaskID:        taskID,
-		CapabilityID:  capID,
-		Status:        contracts.ExecutionGrantStatusIssued,
-		IssuedAt:      now,
-		ExpiresAt:     now.Add(i.TTL),
-		Constraints:   req.Constraints,
-		CorrelationID: req.CorrelationID,
-		Nonce:         nonce,
+		ID:                contracts.ExecutionGrantID("grant-" + nonce[:12]),
+		Principal:         principal,
+		ProjectID:         projectID,
+		ScopeID:           scopeID,
+		TaskID:            taskID,
+		CapabilityID:      capID,
+		Status:            contracts.ExecutionGrantStatusIssued,
+		IssuedAt:          now,
+		ExpiresAt:         now.Add(i.TTL),
+		Constraints:       req.Constraints,
+		CorrelationID:     req.CorrelationID,
+		Nonce:             nonce,
+		PackContentDigest: req.PackContentDigest,
+		PackKeyID:         req.PackKeyID,
 	}
 	if g.CorrelationID == "" {
 		g.CorrelationID = req.Decision.CorrelationID
@@ -131,7 +136,7 @@ func (i *Issuer) IssueAfterEvaluate(
 	if !d.Allowed() {
 		return nil, d, fmt.Errorf("%w: %s", contracts.ErrForbidden, d.Reason)
 	}
-	g, err := i.Issue(ctx, IssueRequest{
+	issueReq := IssueRequest{
 		Decision:      d,
 		Principal:     d.Principal,
 		ProjectID:     evalReq.ProjectID,
@@ -140,7 +145,15 @@ func (i *Issuer) IssueAfterEvaluate(
 		CapabilityID:  evalReq.CapabilityID,
 		CorrelationID: evalReq.CorrelationID,
 		Now:           evalReq.Now,
-	})
+	}
+	if evalReq.RequireTrustedPack {
+		if evalReq.EffectivePackTrust != "TRUSTED" || evalReq.PackContentDigest == "" {
+			return nil, d, fmt.Errorf("%w: trusted-pack grant requires server-derived digest", contracts.ErrGrantInvalid)
+		}
+		issueReq.PackContentDigest = evalReq.PackContentDigest
+		issueReq.PackKeyID = evalReq.PackKeyID
+	}
+	g, err := i.Issue(ctx, issueReq)
 	return g, d, err
 }
 

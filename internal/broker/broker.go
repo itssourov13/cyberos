@@ -100,6 +100,16 @@ func (b *Broker) Execute(req contracts.ExecutionRequest) (contracts.ExecutionRes
 		_ = g.Constraints.AllowedExecutorHints
 	}
 
+	// Phase 19A: pack binding before Host resolution.
+	if g.PackContentDigest != "" {
+		if req.PackContentDigest == "" {
+			return rejected("pack-bound grant requires request pack_content_digest"), contracts.ErrGrantInvalid
+		}
+		if req.PackContentDigest != g.PackContentDigest {
+			return rejected("pack content digest mismatch"), contracts.ErrGrantInvalid
+		}
+	}
+
 	// Host resolution AFTER authorization. Unknown/invalid host → fail closed.
 	if b.Hosts != nil {
 		host, err := b.Hosts.Resolve(req)

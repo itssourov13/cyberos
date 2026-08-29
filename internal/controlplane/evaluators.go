@@ -106,7 +106,9 @@ func (e PackTrustPolicyEvaluator) Evaluate(ctx context.Context, req EvaluateRequ
 	if req.RequireTrustedPack {
 		switch req.EffectivePackTrust {
 		case "TRUSTED":
-			// eligible — continue to inner policy
+			if req.PackContentDigest == "" {
+				return contracts.PolicyResult{Allowed: false, Reason: "PACK_DIGEST_REQUIRED"}
+			}
 		case "REVOKED":
 			return contracts.PolicyResult{Allowed: false, Reason: "PACK_REVOKED"}
 		case "VERIFIED":

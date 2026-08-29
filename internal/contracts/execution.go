@@ -11,7 +11,10 @@ type ExecutionRequest struct {
 	// HostID is an optional logical host identifier (e.g. "local").
 	// It is NOT a URL or network endpoint; only allowlisted IDs resolve.
 	HostID string `json:"host_id,omitempty"`
+	// PackContentDigest must match Grant.PackContentDigest when the grant is pack-bound (Phase 19A).
+	PackContentDigest string `json:"pack_content_digest,omitempty"`
 }
+
 
 // Validate checks that a grant is present and structurally valid.
 // Full authorization and grant matching are the responsibility of the
@@ -58,6 +61,7 @@ type ExecutionResult struct {
 	// HostID echoes the logical execution host that produced the result.
 	HostID string `json:"host_id,omitempty"`
 }
+
 
 // Validate performs basic structural checks.
 func (r ExecutionResult) Validate() error {

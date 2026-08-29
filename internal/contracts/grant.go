@@ -60,7 +60,15 @@ type ExecutionGrant struct {
 	CorrelationID CorrelationID             `json:"correlation_id,omitempty"`
 	// Nonce or similar value for future replay protection.
 	Nonce string `json:"nonce,omitempty"`
+
+	// PackContentDigest binds the authorized pack content (Phase 19A).
+	// Format: sha256:<64 lowercase hex>. Empty = legacy grant without pack binding.
+	// Authoritative: set only by GrantIssuer from server-derived trust context.
+	PackContentDigest string `json:"pack_content_digest,omitempty"`
+	// PackKeyID is signer provenance only — does NOT authorize execution.
+	PackKeyID string `json:"pack_key_id,omitempty"`
 }
+
 
 // Validate checks structural integrity of the grant.
 // It does NOT perform cryptographic verification or database lookups.
@@ -94,6 +102,25 @@ func (g ExecutionGrant) Validate() error {
 	}
 	if !g.ExpiresAt.After(g.IssuedAt) {
 		return ErrInvalidArgument
+	}
+	if g.PackContentDigest != "" {
+		if err := validatePackDigestFormat(g.PackContentDigest); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validatePackDigestFormat accepts sha256:<64 lowercase hex>.
+func validatePackDigestFormat(d string) error {
+	const prefix = "sha256:"
+	if len(d) != len(prefix)+64 || d[:len(prefix)] != prefix {
+		return ErrInvalidArgument
+	}
+	for _, c := range d[len(prefix):] {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return ErrInvalidArgument
+		}
 	}
 	return nil
 }

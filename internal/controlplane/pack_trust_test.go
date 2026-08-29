@@ -23,7 +23,7 @@ func TestPackTrust_TrustedEligible(t *testing.T) {
 	cp, _, _ := setupCPWithPackTrust(t)
 	d, err := cp.Evaluate(context.Background(), EvaluateRequest{
 		PrincipalID: "user-1", ProjectID: "proj-1", ScopeID: "scope-1", CapabilityID: "cap.demo",
-		RequireTrustedPack: true, EffectivePackTrust: "TRUSTED", PackContentDigest: "sha256:abc",
+		RequireTrustedPack: true, EffectivePackTrust: "TRUSTED", PackContentDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -91,6 +91,7 @@ func TestPackTrust_TrustedButCapabilityMissing_StillDenied(t *testing.T) {
 	d, _ := cp.Evaluate(context.Background(), EvaluateRequest{
 		PrincipalID: "user-1", ProjectID: "proj-1", ScopeID: "scope-1", CapabilityID: "",
 		RequireTrustedPack: true, EffectivePackTrust: "TRUSTED",
+		PackContentDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	})
 	if d.Allowed() {
 		t.Fatal("TRUSTED must not bypass capability policy")
@@ -107,5 +108,19 @@ func TestPackTrust_CrossProjectDoesNotGrantEligibility(t *testing.T) {
 	})
 	if d.Allowed() {
 		t.Fatal("cross-project untrusted must deny")
+	}
+}
+
+func TestPackTrust_TrustedWithoutDigest_Denied(t *testing.T) {
+	cp, _, _ := setupCPWithPackTrust(t)
+	d, _ := cp.Evaluate(context.Background(), EvaluateRequest{
+		PrincipalID: "user-1", ProjectID: "proj-1", ScopeID: "scope-1", CapabilityID: "cap.demo",
+		RequireTrustedPack: true, EffectivePackTrust: "TRUSTED",
+	})
+	if d.Allowed() {
+		t.Fatal("TRUSTED without digest must deny")
+	}
+	if d.Policy == nil || d.Policy.Reason != "PACK_DIGEST_REQUIRED" {
+		t.Fatalf("%+v", d.Policy)
 	}
 }
