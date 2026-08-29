@@ -18,10 +18,12 @@ func (r *AssignmentRepo) Create(ctx context.Context, a ports.AssignmentRecord) e
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO execution_assignments (
 			id, execution_id, workflow_run_id, project_id, tenant_id, host_id, worker_id,
+			grant_id, pack_content_digest,
 			status, attempt, max_attempts, lease_until, created_at, dispatched_at, started_at,
 			completed_at, cancelled_at, result_hash, result_status, error_message, version
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
 		a.ID, a.ExecutionID, a.WorkflowRunID, string(a.ProjectID), string(a.TenantID), a.HostID, a.WorkerID,
+		a.GrantID, a.PackContentDigest,
 		a.Status, a.Attempt, a.MaxAttempts, nullTimeWorker(a.LeaseUntil), a.CreatedAt.UTC(),
 		nullTimeWorker(a.DispatchedAt), nullTimeWorker(a.StartedAt), nullTimeWorker(a.CompletedAt),
 		nullTimeWorker(a.CancelledAt), a.ResultHash, a.ResultStatus, a.ErrorMessage, a.Version,
@@ -35,6 +37,7 @@ func (r *AssignmentRepo) Create(ctx context.Context, a ports.AssignmentRecord) e
 func (r *AssignmentRepo) Get(ctx context.Context, projectID contracts.ProjectID, id string) (ports.AssignmentRecord, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, execution_id, workflow_run_id, project_id, tenant_id, host_id, worker_id,
+			grant_id, pack_content_digest,
 			status, attempt, max_attempts, lease_until, created_at, dispatched_at, started_at,
 			completed_at, cancelled_at, result_hash, result_status, error_message, version
 		FROM execution_assignments WHERE project_id=$1 AND id=$2`, string(projectID), id)
@@ -44,6 +47,7 @@ func (r *AssignmentRepo) Get(ctx context.Context, projectID contracts.ProjectID,
 func (r *AssignmentRepo) GetByExecutionID(ctx context.Context, projectID contracts.ProjectID, executionID string) (ports.AssignmentRecord, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, execution_id, workflow_run_id, project_id, tenant_id, host_id, worker_id,
+			grant_id, pack_content_digest,
 			status, attempt, max_attempts, lease_until, created_at, dispatched_at, started_at,
 			completed_at, cancelled_at, result_hash, result_status, error_message, version
 		FROM execution_assignments WHERE project_id=$1 AND execution_id=$2`, string(projectID), executionID)
@@ -81,6 +85,7 @@ func scanAssignment(row assignmentScannable) (ports.AssignmentRecord, error) {
 	var proj, ten string
 	var lease, disp, start, comp, canc sql.NullTime
 	err := row.Scan(&a.ID, &a.ExecutionID, &a.WorkflowRunID, &proj, &ten, &a.HostID, &a.WorkerID,
+		&a.GrantID, &a.PackContentDigest,
 		&a.Status, &a.Attempt, &a.MaxAttempts, &lease, &a.CreatedAt, &disp, &start, &comp, &canc,
 		&a.ResultHash, &a.ResultStatus, &a.ErrorMessage, &a.Version)
 	if err == sql.ErrNoRows {

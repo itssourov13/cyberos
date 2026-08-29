@@ -36,6 +36,8 @@ type ExecutionAssignment struct {
 	TenantID      contracts.TenantID
 	HostID        HostID
 	WorkerID      string
+	GrantID       string
+	PackContentDigest string
 	Status        AssignmentStatus
 	Attempt       int
 	MaxAttempts   int
@@ -69,6 +71,19 @@ type AssignmentService struct {
 
 func NewAssignmentService(repo ports.AssignmentRepository) *AssignmentService {
 	return &AssignmentService{repo: repo, now: func() time.Time { return time.Now().UTC() }}
+}
+
+// CreateFromGrant binds Grant identity into a new PENDING assignment (Phase 22B).
+func (s *AssignmentService) CreateFromGrant(ctx context.Context, g contracts.ExecutionGrant, host HostID, workerID, assignmentID string) (ExecutionAssignment, error) {
+	if err := g.Validate(); err != nil {
+		return ExecutionAssignment{}, err
+	}
+	a := ExecutionAssignment{
+		ID: assignmentID, ExecutionID: string(g.ID), ProjectID: g.ProjectID,
+		HostID: host, WorkerID: workerID, GrantID: string(g.ID),
+		PackContentDigest: g.PackContentDigest,
+	}
+	return s.Create(ctx, a)
 }
 
 // Create persists a PENDING assignment (controller-side, after Grant validation).
@@ -257,6 +272,7 @@ func assignmentToRecord(a ExecutionAssignment) ports.AssignmentRecord {
 	return ports.AssignmentRecord{
 		ID: a.ID, ExecutionID: a.ExecutionID, WorkflowRunID: a.WorkflowRunID,
 		ProjectID: a.ProjectID, TenantID: a.TenantID, HostID: string(a.HostID), WorkerID: a.WorkerID,
+		GrantID: a.GrantID, PackContentDigest: a.PackContentDigest,
 		Status: string(a.Status), Attempt: a.Attempt, MaxAttempts: a.MaxAttempts,
 		LeaseUntil: a.LeaseUntil, CreatedAt: a.CreatedAt, DispatchedAt: a.DispatchedAt,
 		StartedAt: a.StartedAt, CompletedAt: a.CompletedAt, CancelledAt: a.CancelledAt,
@@ -268,6 +284,7 @@ func recordToAssignment(r ports.AssignmentRecord) ExecutionAssignment {
 	return ExecutionAssignment{
 		ID: r.ID, ExecutionID: r.ExecutionID, WorkflowRunID: r.WorkflowRunID,
 		ProjectID: r.ProjectID, TenantID: r.TenantID, HostID: HostID(r.HostID), WorkerID: r.WorkerID,
+		GrantID: r.GrantID, PackContentDigest: r.PackContentDigest,
 		Status: AssignmentStatus(r.Status), Attempt: r.Attempt, MaxAttempts: r.MaxAttempts,
 		LeaseUntil: r.LeaseUntil, CreatedAt: r.CreatedAt, DispatchedAt: r.DispatchedAt,
 		StartedAt: r.StartedAt, CompletedAt: r.CompletedAt, CancelledAt: r.CancelledAt,

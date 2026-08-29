@@ -16,3 +16,17 @@ Grant + Broker remain the sole authorization/execution path.
 
 ### Non-goals (later)
 22B result authenticity · 22C CRL/OCSP · Web UI · Marketplace · JARVIS
+
+## 22B — Assignment Binding & Result Authenticity (COMPLETE)
+
+### Assignment
+- `GrantID`, `PackContentDigest` on assignment (migration 021)
+- `CreateFromGrant` copies Grant identity immutably
+
+### Result authenticity
+- `internal/execution/resultauth` — Ed25519, domain `CYBEROS-WORKER-RESULT-V1\n`
+- Canonical sorted-key JSON; public keys only in `KeyRegistry`
+- `VerifyCompletion` binds assignment/grant/project/worker/host/pack
+- `ReplayGuard` on ResultID
+
+Private keys never in DB/events.

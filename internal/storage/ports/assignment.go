@@ -17,6 +17,8 @@ type AssignmentRecord struct {
 	TenantID      contracts.TenantID
 	HostID        string
 	WorkerID      string
+	GrantID       string
+	PackContentDigest string
 	Status        string
 	Attempt       int
 	MaxAttempts   int
