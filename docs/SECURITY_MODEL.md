@@ -1,6 +1,9 @@
 # CYBEROS Security Model
 
-**Phase 0 Foundation Document**
+**Phase 0 Foundation Document** (invariants still apply)
+
+> Code-verified status: [AUDIT_FINAL_24B.md](AUDIT_FINAL_24B.md). TRUSTED ≠ AUTHORIZED. Broker is the sole execution gateway.
+
 
 ## The Non-Bypassable Invariant
 
