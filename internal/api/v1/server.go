@@ -55,6 +55,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/cases", s.handleCases)
 	mux.HandleFunc("/api/v1/cases/{id}", s.handleCaseByID)
 	mux.HandleFunc("/api/v1/cases/{id}/status", s.handleCaseStatus)
+	mux.HandleFunc("/api/v1/cases/{id}/history", s.handleCaseHistory)
 	mux.HandleFunc("/api/v1/reports", s.handleReports)
 	mux.HandleFunc("/api/v1/reports/{id}", s.handleReportByID)
 	mux.HandleFunc("/api/v1/reports/{id}/export", s.handleReportExport)
@@ -87,9 +88,11 @@ func (s *Server) Handler() http.Handler {
 	s.registerWorkerRoutes(mux)
 	// Embedded production frontend (SPA). /api/* is never served from here.
 	mux.Handle("/", uiFileServer())
-	var h http.Handler = mux
+	// withProjectOwner installs the authoritative project-owner resolver used by
+	// every enforcement helper; it always runs, with or without authentication.
+	var h http.Handler = s.withProjectOwner(mux)
 	if s.Auth != nil {
-		h = s.Auth.Wrap(s.projectGuard(mux))
+		h = s.Auth.Wrap(s.withProjectOwner(s.projectGuard(mux)))
 	}
 	return h
 }
@@ -169,6 +172,12 @@ func (s *Server) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 	if !enforceProject(w, r, contracts.ProjectID(body.ProjectID)) {
 		return
 	}
+	if !s.requirePermission(w, r, auth.PermWrite) {
+		return
+	}
+	if !s.validateRequestRefs(w, contracts.ProjectID(body.ProjectID), contracts.ScopeID(body.ScopeID), contracts.TaskID(body.TaskID)) {
+		return
+	}
 	if body.CorrelationID == "" {
 		body.CorrelationID = "api-" + time.Now().UTC().Format("20060102T150405")
 	}
@@ -184,7 +193,7 @@ func (s *Server) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 		RiskLevelHint:   contracts.RiskLevel(body.RiskLevel),
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, statusForErr(err), publicErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, d)
@@ -212,6 +221,12 @@ func (s *Server) handleGrants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !enforceProject(w, r, contracts.ProjectID(body.ProjectID)) {
+		return
+	}
+	if !s.requirePermission(w, r, auth.PermExecute) {
+		return
+	}
+	if !s.validateRequestRefs(w, contracts.ProjectID(body.ProjectID), contracts.ScopeID(body.ScopeID), contracts.TaskID(body.TaskID)) {
 		return
 	}
 	if body.CorrelationID == "" {
@@ -256,6 +271,9 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	if !enforceProject(w, r, body.Grant.ProjectID) {
 		return
 	}
+	if !s.requirePermission(w, r, auth.PermExecute) {
+		return
+	}
 	res, err := s.SDK.Execute(body.Grant, body.Parameters)
 	if err != nil {
 		writeJSON(w, http.StatusForbidden, map[string]any{
@@ -265,6 +283,26 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// validateRequestRefs checks that the scope and task named by a request belong
+// to the (already authorized) project according to the canonical catalog.
+func (s *Server) validateRequestRefs(w http.ResponseWriter, project contracts.ProjectID, scope contracts.ScopeID, task contracts.TaskID) bool {
+	if s.SDK == nil || s.SDK.Catalog == nil {
+		return true // development wiring without a catalog: nothing to validate against
+	}
+	if scope != "" && !s.scopeBelongsToProject(project, scope) {
+		writeErr(w, http.StatusBadRequest, "scope does not belong to project")
+		return false
+	}
+	if task != "" {
+		t, ok := s.SDK.Catalog.GetTask(task)
+		if !ok || t.ProjectID != project {
+			writeErr(w, http.StatusBadRequest, "task does not belong to project")
+			return false
+		}
+	}
+	return true
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

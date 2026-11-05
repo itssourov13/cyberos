@@ -19,6 +19,31 @@ func (m *memCaseRepo) Upsert(_ context.Context, c ports.CaseRecord) error {
 	m.m[c.ID] = c
 	return nil
 }
+func (m *memCaseRepo) Insert(_ context.Context, c ports.CaseRecord) error {
+	if m.m == nil {
+		m.m = map[string]ports.CaseRecord{}
+	}
+	if _, ok := m.m[c.ID]; ok {
+		return contracts.ErrConflict
+	}
+	m.m[c.ID] = c
+	return nil
+}
+func (m *memCaseRepo) Transition(_ context.Context, id string, from, to contracts.CaseStatus, _ ports.CaseStatusChange) (ports.CaseRecord, error) {
+	c, ok := m.m[id]
+	if !ok {
+		return ports.CaseRecord{}, contracts.ErrNotFound
+	}
+	if c.Status != from {
+		return ports.CaseRecord{}, contracts.ErrConflict
+	}
+	c.Status = to
+	m.m[id] = c
+	return c, nil
+}
+func (m *memCaseRepo) StatusHistory(context.Context, string) ([]ports.CaseStatusChange, error) {
+	return nil, nil
+}
 func (m *memCaseRepo) GetByID(_ context.Context, id string) (ports.CaseRecord, error) {
 	c, ok := m.m[id]
 	if !ok {

@@ -13,6 +13,9 @@ import (
 	"cyberos/internal/storage/ports"
 )
 
+// opTimeout bounds every repository round trip made by the service.
+const opTimeout = 10 * time.Second
+
 // Case is a management container for findings/assets under an assessment.
 type Case struct {
 	ID           string
@@ -32,19 +35,26 @@ type Case struct {
 	Metadata     map[string]string
 }
 
-// Service manages cases in-memory (PG migration present for durable wire-up).
+// StatusChange is an attributable status transition.
+type StatusChange = ports.CaseStatusChange
+
+// Service manages cases. With a repository attached the repository is the
+// single source of truth (no in-memory shadow state can override it); without
+// one (development/tests) an in-memory store is used.
 type Service struct {
-	mu    sync.RWMutex
-	items map[string]*Case
-	repo  ports.CaseRepository
+	mu      sync.RWMutex
+	items   map[string]*Case
+	history map[string][]StatusChange
+	repo    ports.CaseRepository
 }
 
 // NewService constructs a case service.
 func NewService() *Service {
-	return &Service{items: map[string]*Case{}}
+	return &Service{items: map[string]*Case{}, history: map[string][]StatusChange{}}
 }
 
-// WithRepository attaches optional durable persistence (Phase 7B).
+// WithRepository attaches durable persistence. Once attached, all reads and
+// writes go through the repository.
 func (s *Service) WithRepository(repo ports.CaseRepository) *Service {
 	if s != nil {
 		s.repo = repo
@@ -52,16 +62,17 @@ func (s *Service) WithRepository(repo ports.CaseRepository) *Service {
 	return s
 }
 
-func (s *Service) persist(c *Case) error {
-	if s == nil || s.repo == nil || c == nil {
-		return nil
-	}
-	return s.repo.Upsert(context.Background(), ports.CaseRecord{
+func ctxTO() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), opTimeout)
+}
+
+func toRecord(c *Case) ports.CaseRecord {
+	return ports.CaseRecord{
 		ID: c.ID, TenantID: c.TenantID, ProjectID: c.ProjectID, AssessmentID: c.AssessmentID,
 		Title: c.Title, Description: c.Description, Status: c.Status, Priority: c.Priority,
 		FindingIDs: c.FindingIDs, AssetIDs: c.AssetIDs, CreatedBy: c.CreatedBy,
 		CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt, ResolvedAt: c.ResolvedAt, Metadata: c.Metadata,
-	})
+	}
 }
 
 func recordToCase(r ports.CaseRecord) *Case {
@@ -73,7 +84,22 @@ func recordToCase(r ports.CaseRecord) *Case {
 	}
 }
 
-// CreateRequest is input for a new case.
+func clone(c *Case) *Case {
+	cp := *c
+	cp.FindingIDs = append([]contracts.FindingID(nil), c.FindingIDs...)
+	cp.AssetIDs = append([]contracts.AssetID(nil), c.AssetIDs...)
+	if c.Metadata != nil {
+		cp.Metadata = make(map[string]string, len(c.Metadata))
+		for k, v := range c.Metadata {
+			cp.Metadata[k] = v
+		}
+	}
+	return &cp
+}
+
+// CreateRequest is input for a new case. TenantID and CreatedBy MUST be set by
+// trusted server code from authenticated identity and the canonical project
+// record; they are never accepted from a client payload.
 type CreateRequest struct {
 	ID           string
 	TenantID     contracts.TenantID
@@ -87,7 +113,7 @@ type CreateRequest struct {
 	Priority     contracts.RiskPriority
 }
 
-// Create opens a new case.
+// Create opens a new case. It never overwrites an existing case id.
 func (s *Service) Create(req CreateRequest) (*Case, error) {
 	if req.ID == "" || req.ProjectID == "" || req.Title == "" {
 		return nil, fmt.Errorf("%w: id, project, title required", contracts.ErrInvalidArgument)
@@ -106,49 +132,64 @@ func (s *Service) Create(req CreateRequest) (*Case, error) {
 		CreatedBy:  req.CreatedBy, CreatedAt: now, UpdatedAt: now,
 		Metadata: map[string]string{},
 	}
+	if s.repo != nil {
+		ctx, cancel := ctxTO()
+		defer cancel()
+		if err := s.repo.Insert(ctx, toRecord(c)); err != nil {
+			return nil, err
+		}
+		return clone(c), nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.items[c.ID]; ok {
 		return nil, contracts.ErrConflict
 	}
 	s.items[c.ID] = c
-	if err := s.persist(c); err != nil {
-		delete(s.items, c.ID)
-		return nil, err
-	}
-	cp := *c
-	return &cp, nil
+	return clone(c), nil
 }
 
 // Get returns a case by id.
 func (s *Service) Get(id string) (*Case, error) {
-	s.mu.RLock()
-	c, ok := s.items[id]
-	if ok {
-		cp := *c
-		s.mu.RUnlock()
-		return &cp, nil
-	}
-	s.mu.RUnlock()
 	if s.repo != nil {
-		rec, err := s.repo.GetByID(context.Background(), id)
+		ctx, cancel := ctxTO()
+		defer cancel()
+		rec, err := s.repo.GetByID(ctx, id)
 		if err != nil {
 			return nil, err
 		}
 		return recordToCase(rec), nil
 	}
-	return nil, contracts.ErrNotFound
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c, ok := s.items[id]
+	if !ok {
+		return nil, contracts.ErrNotFound
+	}
+	return clone(c), nil
 }
 
-// ListByProject returns cases for a project.
+// ListByProject returns cases for a project (repository-backed when durable).
 func (s *Service) ListByProject(projectID contracts.ProjectID) []*Case {
+	if s.repo != nil {
+		ctx, cancel := ctxTO()
+		defer cancel()
+		recs, err := s.repo.ListByProject(ctx, projectID, 500, 0)
+		if err != nil {
+			return nil
+		}
+		out := make([]*Case, 0, len(recs))
+		for _, r := range recs {
+			out = append(out, recordToCase(r))
+		}
+		return out
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var out []*Case
 	for _, c := range s.items {
 		if c.ProjectID == projectID {
-			cp := *c
-			out = append(out, &cp)
+			out = append(out, clone(c))
 		}
 	}
 	return out
@@ -156,22 +197,68 @@ func (s *Service) ListByProject(projectID contracts.ProjectID) []*Case {
 
 // ListByAssessment returns cases for an assessment.
 func (s *Service) ListByAssessment(assessmentID string) []*Case {
+	if s.repo != nil {
+		ctx, cancel := ctxTO()
+		defer cancel()
+		recs, err := s.repo.ListByAssessment(ctx, assessmentID, 500, 0)
+		if err != nil {
+			return nil
+		}
+		out := make([]*Case, 0, len(recs))
+		for _, r := range recs {
+			out = append(out, recordToCase(r))
+		}
+		return out
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var out []*Case
 	for _, c := range s.items {
 		if c.AssessmentID == assessmentID {
-			cp := *c
-			out = append(out, &cp)
+			out = append(out, clone(c))
 		}
 	}
 	return out
 }
 
-// TransitionStatus validates and applies a status transition.
+// TransitionStatus applies a transition attributed to the "system" actor.
+// Prefer TransitionStatusBy so history names the real principal.
 func (s *Service) TransitionStatus(id string, next contracts.CaseStatus) (*Case, error) {
+	return s.TransitionStatusBy(id, next, "system", "")
+}
+
+// TransitionStatusBy validates and applies a status transition and records an
+// attributable history entry. With a repository the update and the history
+// row commit in one transaction.
+func (s *Service) TransitionStatusBy(id string, next contracts.CaseStatus, actor contracts.PrincipalID, reason string) (*Case, error) {
 	if !next.Valid() {
 		return nil, fmt.Errorf("%w: invalid status", contracts.ErrInvalidArgument)
+	}
+	if actor == "" {
+		return nil, fmt.Errorf("%w: actor required", contracts.ErrInvalidArgument)
+	}
+	now := time.Now().UTC()
+	if s.repo != nil {
+		ctx, cancel := ctxTO()
+		defer cancel()
+		rec, err := s.repo.GetByID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if !allowedTransition(rec.Status, next) {
+			return nil, fmt.Errorf("%w: cannot transition %s → %s", contracts.ErrInvalidArgument, rec.Status, next)
+		}
+		if rec.Status == next {
+			return recordToCase(rec), nil
+		}
+		out, err := s.repo.Transition(ctx, id, rec.Status, next, ports.CaseStatusChange{
+			CaseID: id, TenantID: rec.TenantID, ProjectID: rec.ProjectID,
+			From: rec.Status, To: next, Actor: actor, Reason: reason, At: now,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return recordToCase(out), nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -182,98 +269,110 @@ func (s *Service) TransitionStatus(id string, next contracts.CaseStatus) (*Case,
 	if !allowedTransition(c.Status, next) {
 		return nil, fmt.Errorf("%w: cannot transition %s → %s", contracts.ErrInvalidArgument, c.Status, next)
 	}
+	if c.Status == next {
+		return clone(c), nil
+	}
+	prev := c.Status
 	c.Status = next
-	c.UpdatedAt = time.Now().UTC()
+	c.UpdatedAt = now
 	if next == contracts.CaseStatusResolved || next == contracts.CaseStatusAccepted {
-		t := c.UpdatedAt
+		t := now
 		c.ResolvedAt = &t
 	}
 	if next == contracts.CaseStatusReopened {
 		c.ResolvedAt = nil
 	}
-	if err := s.persist(c); err != nil {
-		return nil, err
+	s.history[id] = append(s.history[id], StatusChange{
+		CaseID: id, TenantID: c.TenantID, ProjectID: c.ProjectID,
+		From: prev, To: next, Actor: actor, Reason: reason, At: now,
+	})
+	return clone(c), nil
+}
+
+// History returns the attributable status history of a case, oldest first.
+func (s *Service) History(id string) ([]StatusChange, error) {
+	if s.repo != nil {
+		ctx, cancel := ctxTO()
+		defer cancel()
+		return s.repo.StatusHistory(ctx, id)
 	}
-	cp := *c
-	return &cp, nil
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]StatusChange(nil), s.history[id]...), nil
+}
+
+// mutate loads a case, applies fn and persists the change.
+func (s *Service) mutate(id string, fn func(*Case)) (*Case, error) {
+	if s.repo != nil {
+		ctx, cancel := ctxTO()
+		defer cancel()
+		rec, err := s.repo.GetByID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		c := recordToCase(rec)
+		fn(c)
+		c.UpdatedAt = time.Now().UTC()
+		if err := s.repo.Upsert(ctx, toRecord(c)); err != nil {
+			return nil, err
+		}
+		return c, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.items[id]
+	if !ok {
+		return nil, contracts.ErrNotFound
+	}
+	fn(c)
+	c.UpdatedAt = time.Now().UTC()
+	return clone(c), nil
 }
 
 // LinkFinding attaches a finding reference.
 func (s *Service) LinkFinding(id string, findingID contracts.FindingID) (*Case, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	c, ok := s.items[id]
-	if !ok {
-		return nil, contracts.ErrNotFound
-	}
-	for _, f := range c.FindingIDs {
-		if f == findingID {
-			cp := *c
-			return &cp, nil
+	return s.mutate(id, func(c *Case) {
+		for _, f := range c.FindingIDs {
+			if f == findingID {
+				return
+			}
 		}
-	}
-	c.FindingIDs = append(c.FindingIDs, findingID)
-	c.UpdatedAt = time.Now().UTC()
-	if err := s.persist(c); err != nil {
-		return nil, err
-	}
-	cp := *c
-	return &cp, nil
+		c.FindingIDs = append(c.FindingIDs, findingID)
+	})
 }
 
 // LinkAsset attaches an asset reference.
 func (s *Service) LinkAsset(id string, assetID contracts.AssetID) (*Case, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	c, ok := s.items[id]
-	if !ok {
-		return nil, contracts.ErrNotFound
-	}
-	for _, a := range c.AssetIDs {
-		if a == assetID {
-			cp := *c
-			return &cp, nil
+	return s.mutate(id, func(c *Case) {
+		for _, a := range c.AssetIDs {
+			if a == assetID {
+				return
+			}
 		}
-	}
-	c.AssetIDs = append(c.AssetIDs, assetID)
-	c.UpdatedAt = time.Now().UTC()
-	if err := s.persist(c); err != nil {
-		return nil, err
-	}
-	cp := *c
-	return &cp, nil
+		c.AssetIDs = append(c.AssetIDs, assetID)
+	})
 }
 
 // DerivePriorityFromRisks sets case priority to the max of linked risk evaluations.
 func (s *Service) DerivePriorityFromRisks(id string, engine *riskprio.Engine) (*Case, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	c, ok := s.items[id]
-	if !ok {
-		return nil, contracts.ErrNotFound
-	}
-	if engine == nil {
-		return c, nil
-	}
-	maxScore := -1
-	best := c.Priority
-	for _, fid := range c.FindingIDs {
-		ev, err := engine.GetByFinding(fid)
-		if err != nil {
-			continue
+	return s.mutate(id, func(c *Case) {
+		if engine == nil {
+			return
 		}
-		if ev.Score > maxScore {
-			maxScore = ev.Score
-			best = ev.Priority
+		maxScore := -1
+		best := c.Priority
+		for _, fid := range c.FindingIDs {
+			ev, err := engine.GetByFinding(fid)
+			if err != nil {
+				continue
+			}
+			if ev.Score > maxScore {
+				maxScore = ev.Score
+				best = ev.Priority
+			}
 		}
-	}
-	c.Priority = best
-	c.UpdatedAt = time.Now().UTC()
-	if err := s.persist(c); err != nil {
-		return nil, err
-	}
-	cp := *c
-	return &cp, nil
+		c.Priority = best
+	})
 }
 
 func allowedTransition(from, to contracts.CaseStatus) bool {

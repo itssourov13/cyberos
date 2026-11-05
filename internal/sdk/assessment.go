@@ -13,6 +13,10 @@ func (c *Client) CreateAssessment(id, projectID, scopeID, principalID, title, ta
 	if c.Assessment == nil {
 		return nil, fmt.Errorf("%w: assessment orchestrator not configured", contracts.ErrInvalidArgument)
 	}
+	// Never let a create overwrite an existing assessment (possibly another tenant's).
+	if existing, gerr := c.Assessment.Get(contracts.AssessmentID(id)); gerr == nil && existing != nil {
+		return nil, contracts.ErrConflict
+	}
 	a, err := assessment.New(
 		contracts.AssessmentID(id),
 		contracts.ProjectID(projectID),

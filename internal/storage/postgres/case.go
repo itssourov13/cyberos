@@ -34,11 +34,9 @@ func (r *CaseRepo) Upsert(ctx context.Context, c ports.CaseRecord) error {
 			finding_ids, asset_ids, created_by, created_at, updated_at, resolved_at, metadata
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		ON CONFLICT (id) DO UPDATE SET
-			tenant_id=EXCLUDED.tenant_id, project_id=EXCLUDED.project_id, assessment_id=EXCLUDED.assessment_id,
-			title=EXCLUDED.title, description=EXCLUDED.description, status=EXCLUDED.status,
+			title=EXCLUDED.title, description=EXCLUDED.description,
 			priority=EXCLUDED.priority, finding_ids=EXCLUDED.finding_ids, asset_ids=EXCLUDED.asset_ids,
-			created_by=EXCLUDED.created_by, updated_at=EXCLUDED.updated_at, resolved_at=EXCLUDED.resolved_at,
-			metadata=EXCLUDED.metadata`,
+			updated_at=EXCLUDED.updated_at, metadata=EXCLUDED.metadata`,
 		c.ID, string(c.TenantID), string(c.ProjectID), c.AssessmentID, c.Title, c.Description,
 		string(c.Status), string(c.Priority), fids, aids, string(c.CreatedBy),
 		c.CreatedAt.UTC(), c.UpdatedAt.UTC(), resolved, meta,
@@ -143,4 +141,104 @@ func scanCase(s scannable) (ports.CaseRecord, error) {
 		rec.ResolvedAt = &t
 	}
 	return rec, nil
+}
+
+
+// Insert creates a case; an existing id yields contracts.ErrConflict.
+func (r *CaseRepo) Insert(ctx context.Context, c ports.CaseRecord) error {
+	if c.ID == "" || c.ProjectID == "" {
+		return contracts.ErrInvalidArgument
+	}
+	fids, _ := json.Marshal(c.FindingIDs)
+	aids, _ := json.Marshal(c.AssetIDs)
+	meta, _ := json.Marshal(c.Metadata)
+	var resolved any
+	if c.ResolvedAt != nil {
+		resolved = c.ResolvedAt.UTC()
+	}
+	res, err := r.db.ExecContext(ctx, `
+		INSERT INTO security_cases (
+			id, tenant_id, project_id, assessment_id, title, description, status, priority,
+			finding_ids, asset_ids, created_by, created_at, updated_at, resolved_at, metadata
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+		ON CONFLICT (id) DO NOTHING`,
+		c.ID, string(c.TenantID), string(c.ProjectID), c.AssessmentID, c.Title, c.Description,
+		string(c.Status), string(c.Priority), fids, aids, string(c.CreatedBy),
+		c.CreatedAt.UTC(), c.UpdatedAt.UTC(), resolved, meta,
+	)
+	if err != nil {
+		return fmt.Errorf("insert case: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return contracts.ErrConflict
+	}
+	return nil
+}
+
+// Transition changes status and appends history atomically (row-locked).
+func (r *CaseRepo) Transition(ctx context.Context, id string, from, to contracts.CaseStatus, ch ports.CaseStatusChange) (ports.CaseRecord, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ports.CaseRecord{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var current string
+	var tenantID, projectID string
+	err = tx.QueryRowContext(ctx, `SELECT status, tenant_id, project_id FROM security_cases WHERE id=$1 FOR UPDATE`, id).
+		Scan(&current, &tenantID, &projectID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ports.CaseRecord{}, contracts.ErrNotFound
+		}
+		return ports.CaseRecord{}, err
+	}
+	if contracts.CaseStatus(current) != from {
+		return ports.CaseRecord{}, contracts.ErrConflict
+	}
+	at := ch.At.UTC()
+	var resolved any
+	switch to {
+	case contracts.CaseStatusResolved, contracts.CaseStatusAccepted:
+		resolved = at
+	}
+	if _, err = tx.ExecContext(ctx,
+		`UPDATE security_cases SET status=$2, updated_at=$3, resolved_at=$4 WHERE id=$1`,
+		id, string(to), at, resolved); err != nil {
+		return ports.CaseRecord{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO case_status_history (case_id, tenant_id, project_id, from_status, to_status, actor, reason, changed_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		id, tenantID, projectID, string(from), string(to), string(ch.Actor), ch.Reason, at); err != nil {
+		return ports.CaseRecord{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return ports.CaseRecord{}, err
+	}
+	return r.GetByID(ctx, id)
+}
+
+// StatusHistory lists status changes oldest first.
+func (r *CaseRepo) StatusHistory(ctx context.Context, caseID string) ([]ports.CaseStatusChange, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT case_id, tenant_id, project_id, from_status, to_status, actor, reason, changed_at
+		FROM case_status_history WHERE case_id=$1 ORDER BY id ASC`, caseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ports.CaseStatusChange
+	for rows.Next() {
+		var cid, tid, pid, from, to, actor, reason string
+		var at time.Time
+		if err := rows.Scan(&cid, &tid, &pid, &from, &to, &actor, &reason, &at); err != nil {
+			return nil, err
+		}
+		out = append(out, ports.CaseStatusChange{
+			CaseID: cid, TenantID: contracts.TenantID(tid), ProjectID: contracts.ProjectID(pid),
+			From: contracts.CaseStatus(from), To: contracts.CaseStatus(to),
+			Actor: contracts.PrincipalID(actor), Reason: reason, At: at.UTC(),
+		})
+	}
+	return out, rows.Err()
 }

@@ -30,6 +30,7 @@ type Identity struct {
 	Principal contracts.PrincipalRef
 	TenantID  contracts.TenantID // may be empty for legacy/single-tenant
 	APIKeyID  string
+	Role      Role // tenant-scoped permission level; empty = analyst (legacy keys)
 }
 
 // Authenticator verifies credentials and returns an Identity.
@@ -45,6 +46,7 @@ type APIKey struct {
 	Hash        string // sha256 hex of secret
 	PrincipalID contracts.PrincipalID
 	TenantID    contracts.TenantID
+	Role        Role
 	Active      bool
 	ExpiresAt   *time.Time
 	CreatedAt   time.Time
@@ -184,6 +186,7 @@ func (a *APIKeyAuthenticator) Authenticate(ctx context.Context, credential strin
 		Principal: contracts.PrincipalRef{ID: key.PrincipalID, Type: contracts.PrincipalTypeHuman},
 		TenantID:  key.TenantID,
 		APIKeyID:  key.ID,
+		Role:      key.Role,
 	}, nil
 }
 
@@ -244,6 +247,7 @@ func WithIdentity(ctx context.Context, id Identity) context.Context {
 	ctx = context.WithValue(ctx, keyPrincipal, id.Principal)
 	ctx = context.WithValue(ctx, keyTenant, id.TenantID)
 	ctx = context.WithValue(ctx, keyAPIKeyID, id.APIKeyID)
+	ctx = context.WithValue(ctx, ctxRoleKey{}, id.Role)
 	return ctx
 }
 

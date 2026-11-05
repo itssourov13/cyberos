@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"cyberos/internal/ai/autonomy"
+	"cyberos/internal/auth"
 	"cyberos/internal/contracts"
 )
 
@@ -60,17 +61,46 @@ func (s *Server) StartAutonomyRun(w http.ResponseWriter, r *http.Request) {
 	if !s.limitRequest(w, r, "autonomy") {
 		return
 	}
+	if !s.requirePermission(w, r, auth.PermAutonomyControl) {
+		return
+	}
 	var body autonomy.StartRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	if body.ProjectID == "" {
+		writeErr(w, http.StatusBadRequest, "project_id required")
+		return
+	}
 	if !enforceProject(w, r, body.ProjectID) {
 		return
 	}
+	// Identity and ownership are server-authoritative: never trust client-supplied
+	// principal, tenant or policy ownership fields.
+	principal, ok := s.bindPrincipal(w, r, body.PrincipalID)
+	if !ok {
+		return
+	}
+	if principal == "" {
+		principal = s.actorID(r)
+	}
+	tenant, known := projectOwner(r, body.ProjectID)
+	if !known {
+		writeErr(w, http.StatusBadRequest, "unknown project")
+		return
+	}
+	if !s.scopeBelongsToProject(body.ProjectID, body.ScopeID) {
+		writeErr(w, http.StatusBadRequest, "scope does not belong to project")
+		return
+	}
+	body.PrincipalID = principal
+	body.TenantID = tenant
+	body.Policy.ProjectID = body.ProjectID
+	body.Policy.TenantID = tenant
 	run, err := s.SDK.StartAutonomy(r.Context(), body)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(w, statusForErr(err), publicErr(err))
 		return
 	}
 	writeJSON(w, http.StatusCreated, autonomyView(run))
@@ -85,10 +115,10 @@ func (s *Server) GetAutonomyRun(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	run, err := s.SDK.GetAutonomy(id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+		writeErr(w, http.StatusNotFound, "not found")
 		return
 	}
-	if !enforceProject(w, r, run.ProjectID) {
+	if !enforceObject(w, r, run.TenantID, run.ProjectID) {
 		return
 	}
 	writeJSON(w, http.StatusOK, autonomyView(run))
@@ -107,10 +137,13 @@ func (s *Server) CancelAutonomyRun(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	run, err := s.SDK.GetAutonomy(id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+		writeErr(w, http.StatusNotFound, "not found")
 		return
 	}
-	if !enforceProject(w, r, run.ProjectID) {
+	if !enforceObject(w, r, run.TenantID, run.ProjectID) {
+		return
+	}
+	if !s.requirePermission(w, r, auth.PermAutonomyControl) {
 		return
 	}
 	run, err = s.SDK.CancelAutonomy(id)
@@ -131,21 +164,32 @@ func (s *Server) ResumeAutonomyRun(w http.ResponseWriter, r *http.Request) {
 	if !s.limitRequest(w, r, "autonomy") {
 		return
 	}
+	if !s.requirePermission(w, r, auth.PermAutonomyControl) {
+		return
+	}
 	id := r.PathValue("id")
 	var body struct {
 		ProjectID contracts.ProjectID `json:"project_id"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
 	if body.ProjectID == "" {
 		writeErr(w, http.StatusBadRequest, "project_id required")
 		return
 	}
+	// The project is only a lookup key: it must be owned by the caller, and the
+	// loaded run must actually belong to it.
 	if !enforceProject(w, r, body.ProjectID) {
 		return
 	}
 	run, err := s.SDK.ResumeAutonomy(r.Context(), body.ProjectID, id)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+	if err != nil || run == nil || run.ProjectID != body.ProjectID {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	if !enforceObject(w, r, run.TenantID, run.ProjectID) {
 		return
 	}
 	writeJSON(w, http.StatusOK, autonomyView(run))
@@ -157,27 +201,48 @@ func (s *Server) AdvanceAutonomyRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotImplemented, "autonomy handoff not configured")
 		return
 	}
+	s.limitBody(w, r)
+	if !s.limitRequest(w, r, "autonomy") {
+		return
+	}
+	if !s.requirePermission(w, r, auth.PermAutonomyControl) {
+		return
+	}
 	id := r.PathValue("id")
 	var body struct {
 		ProjectID     contracts.ProjectID `json:"project_id"`
-		TenantID      contracts.TenantID  `json:"tenant_id"`
-		ScopeID       contracts.ScopeID   `json:"scope_id"`
 		WorkflowRunID string              `json:"workflow_run_id"`
+		// tenant_id / scope_id in a payload are ignored: both come from the stored run.
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
-	if body.ProjectID == "" {
-		writeErr(w, http.StatusBadRequest, "project_id required")
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	if !enforceProject(w, r, body.ProjectID) {
+	run, err := s.SDK.GetAutonomy(id)
+	if err != nil && body.ProjectID != "" && s.SDK.Autonomy != nil {
+		// Not loaded in this instance: load it under a project the caller owns.
+		if !enforceProject(w, r, body.ProjectID) {
+			return
+		}
+		run, err = s.SDK.ResumeAutonomy(r.Context(), body.ProjectID, id)
+	}
+	if err != nil || run == nil {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	if !enforceObject(w, r, run.TenantID, run.ProjectID) {
+		return
+	}
+	if body.ProjectID != "" && body.ProjectID != run.ProjectID {
+		writeErr(w, http.StatusForbidden, "cross-project access denied")
 		return
 	}
 	res, err := s.SDK.AdvanceAutonomy(r.Context(), autonomy.HandoffRequest{
-		RunID: id, ProjectID: body.ProjectID, TenantID: body.TenantID,
-		ScopeID: body.ScopeID, WorkflowRunID: body.WorkflowRunID,
+		RunID: id, ProjectID: run.ProjectID, TenantID: run.TenantID,
+		ScopeID: run.ScopeID, WorkflowRunID: body.WorkflowRunID,
 	})
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(w, statusForErr(err), publicErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -241,10 +306,13 @@ func (s *Server) ApproveAutonomyRun(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	run, err := s.SDK.GetAutonomy(id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+		writeErr(w, http.StatusNotFound, "not found")
 		return
 	}
-	if !enforceProject(w, r, run.ProjectID) {
+	if !enforceObject(w, r, run.TenantID, run.ProjectID) {
+		return
+	}
+	if !s.requirePermission(w, r, auth.PermAutonomyApprove) {
 		return
 	}
 	run, err = s.SDK.Autonomy.Approve(id)
@@ -268,10 +336,13 @@ func (s *Server) RejectAutonomyRun(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	run, err := s.SDK.GetAutonomy(id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+		writeErr(w, http.StatusNotFound, "not found")
 		return
 	}
-	if !enforceProject(w, r, run.ProjectID) {
+	if !enforceObject(w, r, run.TenantID, run.ProjectID) {
+		return
+	}
+	if !s.requirePermission(w, r, auth.PermAutonomyApprove) {
 		return
 	}
 	run, err = s.SDK.Autonomy.Reject(id)

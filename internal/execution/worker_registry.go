@@ -64,6 +64,22 @@ func (r *WorkerRegistry) Get(ctx context.Context, projectID contracts.ProjectID,
 	return recordToWorker(rec), nil
 }
 
+// List returns every worker registered under the project (durable repository order).
+func (r *WorkerRegistry) List(ctx context.Context, projectID contracts.ProjectID) ([]Worker, error) {
+	if r == nil || r.repo == nil {
+		return nil, fmt.Errorf("%w: worker registry not configured", contracts.ErrInvalidArgument)
+	}
+	recs, err := r.repo.List(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Worker, 0, len(recs))
+	for _, rec := range recs {
+		out = append(out, recordToWorker(rec))
+	}
+	return out, nil
+}
+
 // Activate transitions PENDING/SUSPENDED → ACTIVE.
 func (r *WorkerRegistry) Activate(ctx context.Context, projectID contracts.ProjectID, workerID string) (Worker, error) {
 	return r.transition(ctx, projectID, workerID, WorkerActive)

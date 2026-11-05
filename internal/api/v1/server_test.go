@@ -80,6 +80,9 @@ func testClient(t *testing.T) *sdk.Client {
 	cp := controlplane.NewService(idSvc, scSvc)
 	client := sdk.NewInMemory().WithIdentity(idSvc).WithScopes(scSvc).WithControlPlane(cp)
 	_ = client.RegisterCapability(context.Background(), "cap-1", "Cap", contracts.CapabilityTypeUtility)
+	// The canonical catalog is what the API validates scope/project refs against.
+	client.Catalog.UpsertProject(sdk.ProjectView{ID: "proj-1", Name: "P1"})
+	client.Catalog.UpsertScope(sdk.ScopeView{ID: "scope-1", ProjectID: "proj-1", Name: "Main", Status: contracts.ScopeStatusActive})
 	return client
 }
 

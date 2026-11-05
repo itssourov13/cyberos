@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"cyberos/internal/auth"
 	"cyberos/internal/contracts"
 	"cyberos/internal/execution"
 )
@@ -28,6 +29,9 @@ func (s *Server) handleWorkerRegister(w http.ResponseWriter, r *http.Request) {
 	if !enforceProject(w, r, project) {
 		return
 	}
+	if !s.requirePermission(w, r, auth.PermWorkerAdmin) {
+		return
+	}
 	var body struct {
 		ID              string            `json:"worker_id"`
 		HostID          string            `json:"host_id"`
@@ -40,14 +44,15 @@ func (s *Server) handleWorkerRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	// Tenant ownership is bound from the authenticated identity, never the body.
-	tenant := contracts.TenantID(body.TenantID)
-	if ct := callerTenant(r); ct != "" {
-		if tenant != "" && tenant != ct {
-			writeErr(w, http.StatusForbidden, "tenant_id does not match the authenticated tenant")
-			return
-		}
-		tenant = ct
+	// Tenant ownership comes from the canonical project record, never the body.
+	tenant, known := projectOwner(r, project)
+	if !known {
+		writeErr(w, http.StatusBadRequest, "unknown project")
+		return
+	}
+	if body.TenantID != "" && contracts.TenantID(body.TenantID) != tenant {
+		writeErr(w, http.StatusForbidden, "tenant_id does not match the project's tenant")
+		return
 	}
 	worker, err := s.Workers.Register(r.Context(), execution.Worker{
 		ID: body.ID, ProjectID: project, TenantID: tenant,
@@ -56,7 +61,7 @@ func (s *Server) handleWorkerRegister(w http.ResponseWriter, r *http.Request) {
 		Status: execution.WorkerPending,
 	})
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(w, statusForErr(err), publicErr(err))
 		return
 	}
 	writeJSON(w, http.StatusCreated, workerView(worker))
@@ -71,8 +76,20 @@ func (s *Server) handleWorkerList(w http.ResponseWriter, r *http.Request) {
 	if !enforceProject(w, r, project) {
 		return
 	}
-	// List via underlying repo is not exported; get individual is enough for 17C minimal API.
-	writeJSON(w, http.StatusOK, map[string]any{"project_id": project, "note": "list via registry in SDK"})
+	list, err := s.Workers.List(r.Context(), project)
+	if err != nil {
+		writeErr(w, statusForErr(err), publicErr(err))
+		return
+	}
+	ct := callerTenant(r)
+	views := make([]map[string]any, 0, len(list))
+	for _, wk := range list {
+		if ct != "" && wk.TenantID != ct {
+			continue
+		}
+		views = append(views, workerView(wk))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"project_id": project, "workers": views})
 }
 
 func (s *Server) handleWorkerGet(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +103,7 @@ func (s *Server) handleWorkerGet(w http.ResponseWriter, r *http.Request) {
 	}
 	worker, err := s.Workers.Get(r.Context(), project, r.PathValue("id"))
 	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+		writeErr(w, http.StatusNotFound, "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, workerView(worker))
@@ -108,6 +125,9 @@ func (s *Server) workerTransition(w http.ResponseWriter, r *http.Request, action
 	if !enforceProject(w, r, project) {
 		return
 	}
+	if !s.requirePermission(w, r, auth.PermWorkerAdmin) {
+		return
+	}
 	id := r.PathValue("id")
 	var worker execution.Worker
 	var err error
@@ -121,7 +141,7 @@ func (s *Server) workerTransition(w http.ResponseWriter, r *http.Request, action
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusConflict, err.Error())
+		writeErr(w, statusForErr(err), publicErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, workerView(worker))
@@ -136,9 +156,12 @@ func (s *Server) handleWorkerHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if !enforceProject(w, r, project) {
 		return
 	}
+	if !s.requirePermission(w, r, auth.PermWrite) {
+		return
+	}
 	worker, err := s.Workers.Heartbeat(r.Context(), project, r.PathValue("id"))
 	if err != nil {
-		writeErr(w, http.StatusForbidden, err.Error())
+		writeErr(w, http.StatusForbidden, "heartbeat rejected")
 		return
 	}
 	writeJSON(w, http.StatusOK, workerView(worker))

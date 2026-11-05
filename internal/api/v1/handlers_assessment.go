@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"cyberos/internal/assessment"
 	"cyberos/internal/contracts"
+	"cyberos/internal/sdk"
 )
 
 type createAssessmentBody struct {
@@ -20,6 +22,29 @@ type planAssessmentBody struct {
 	Steps []contracts.AssessmentStep `json:"steps"`
 }
 
+// loadAssessment loads the stored assessment and authorizes the caller against
+// its canonical project/tenant before anything is returned or mutated. Missing
+// and not-owned assessments are indistinguishable (404).
+func (s *Server) loadAssessment(w http.ResponseWriter, r *http.Request, id string) (*assessment.Assessment, bool) {
+	if id == "" {
+		writeErr(w, http.StatusBadRequest, "id required")
+		return nil, false
+	}
+	if s.SDK == nil || s.SDK.Assessment == nil {
+		writeErr(w, http.StatusNotFound, "not found")
+		return nil, false
+	}
+	a, err := s.SDK.GetAssessment(id)
+	if err != nil || a == nil {
+		writeErr(w, http.StatusNotFound, "not found")
+		return nil, false
+	}
+	if !enforceObject(w, r, "", a.ProjectID) {
+		return nil, false
+	}
+	return a, true
+}
+
 func (s *Server) handleAssessments(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -27,8 +52,23 @@ func (s *Server) handleAssessments(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"assessments": []any{}})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"assessments": s.SDK.Catalog.ListAssessments()})
+		project, ok := requireProjectScope(w, r)
+		if !ok {
+			return
+		}
+		out := make([]sdk.AssessmentView, 0)
+		for _, a := range s.SDK.Catalog.ListAssessments() {
+			if project != "" && contracts.ProjectID(a.ProjectID) != project {
+				continue
+			}
+			if !resourceVisible(r, contracts.ProjectID(a.ProjectID)) {
+				continue
+			}
+			out = append(out, a)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"assessments": out})
 	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		var body createAssessmentBody
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid json")
@@ -41,9 +81,13 @@ func (s *Server) handleAssessments(w http.ResponseWriter, r *http.Request) {
 		if !enforceProject(w, r, contracts.ProjectID(body.ProjectID)) {
 			return
 		}
+		if !s.scopeBelongsToProject(contracts.ProjectID(body.ProjectID), contracts.ScopeID(body.ScopeID)) {
+			writeErr(w, http.StatusBadRequest, "scope does not belong to project")
+			return
+		}
 		a, err := s.SDK.CreateAssessment(body.ID, body.ProjectID, body.ScopeID, string(principal), body.Title, body.Target)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			writeErr(w, statusForErr(err), publicErr(err))
 			return
 		}
 		writeJSON(w, http.StatusCreated, a)
@@ -52,23 +96,29 @@ func (s *Server) handleAssessments(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// scopeBelongsToProject validates a scope against the canonical catalog.
+func (s *Server) scopeBelongsToProject(p contracts.ProjectID, sc contracts.ScopeID) bool {
+	if s.SDK == nil || s.SDK.Catalog == nil {
+		return false
+	}
+	for _, v := range s.SDK.Catalog.ListScopes(p) {
+		if contracts.ScopeID(v.ID) == sc {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) handleAssessmentByID(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if id == "" {
-		writeErr(w, http.StatusBadRequest, "id required")
+	if r.Method != http.MethodGet {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	switch r.Method {
-	case http.MethodGet:
-		a, err := s.SDK.GetAssessment(id)
-		if err != nil {
-			writeErr(w, http.StatusNotFound, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, a)
-	default:
-		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+	a, ok := s.loadAssessment(w, r, r.PathValue("id"))
+	if !ok {
+		return
 	}
+	writeJSON(w, http.StatusOK, a)
 }
 
 func (s *Server) handleAssessmentPlan(w http.ResponseWriter, r *http.Request) {
@@ -77,6 +127,10 @@ func (s *Server) handleAssessmentPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	if _, ok := s.loadAssessment(w, r, id); !ok {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var body planAssessmentBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
@@ -84,7 +138,7 @@ func (s *Server) handleAssessmentPlan(w http.ResponseWriter, r *http.Request) {
 	}
 	a, err := s.SDK.PlanAssessment(id, body.Steps)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(w, statusForErr(err), publicErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, a)
@@ -96,9 +150,12 @@ func (s *Server) handleAssessmentRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	if _, ok := s.loadAssessment(w, r, id); !ok {
+		return
+	}
 	a, err := s.SDK.RunAssessment(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(w, statusForErr(err), publicErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, a)

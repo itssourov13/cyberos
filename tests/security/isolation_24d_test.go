@@ -72,8 +72,13 @@ func TestIsolation_TenantCannotDeclareForeignProject(t *testing.T) {
 func TestIsolation_TaskByIDRequiresMatchingProject(t *testing.T) {
 	e := newTenantEnv(t)
 	// tenant-a declares its own project but asks for tenant-b's task id.
-	if rr := e.get(e.keyA, "/api/v1/tasks/task-b?project_id=proj-a"); rr.Code != http.StatusForbidden {
-		t.Fatalf("ID-guessing across projects must be 403, got %d", rr.Code)
+	// By-id reads return the same 404 as a nonexistent id so IDs cannot be probed.
+	rr := e.get(e.keyA, "/api/v1/tasks/task-b?project_id=proj-a")
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("ID-guessing across projects must be 404, got %d", rr.Code)
+	}
+	if miss := e.get(e.keyA, "/api/v1/tasks/task-none?project_id=proj-a"); miss.Code != rr.Code {
+		t.Fatalf("foreign and missing ids must be indistinguishable: %d vs %d", rr.Code, miss.Code)
 	}
 	if rr := e.get(e.keyB, "/api/v1/tasks/task-b?project_id=proj-b"); rr.Code != http.StatusOK {
 		t.Fatalf("owner read: %d", rr.Code)

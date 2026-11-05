@@ -104,6 +104,31 @@ func (m *memCaseRepo7d) Upsert(_ context.Context, c ports.CaseRecord) error {
 	m.m[c.ID] = c
 	return nil
 }
+func (m *memCaseRepo7d) Insert(_ context.Context, c ports.CaseRecord) error {
+	if m.m == nil {
+		m.m = map[string]ports.CaseRecord{}
+	}
+	if _, ok := m.m[c.ID]; ok {
+		return contracts.ErrConflict
+	}
+	m.m[c.ID] = c
+	return nil
+}
+func (m *memCaseRepo7d) Transition(_ context.Context, id string, from, to contracts.CaseStatus, _ ports.CaseStatusChange) (ports.CaseRecord, error) {
+	c, ok := m.m[id]
+	if !ok {
+		return ports.CaseRecord{}, contracts.ErrNotFound
+	}
+	if c.Status != from {
+		return ports.CaseRecord{}, contracts.ErrConflict
+	}
+	c.Status = to
+	m.m[id] = c
+	return c, nil
+}
+func (m *memCaseRepo7d) StatusHistory(context.Context, string) ([]ports.CaseStatusChange, error) {
+	return nil, nil
+}
 func (m *memCaseRepo7d) GetByID(_ context.Context, id string) (ports.CaseRecord, error) {
 	c, ok := m.m[id]
 	if !ok {
@@ -111,14 +136,23 @@ func (m *memCaseRepo7d) GetByID(_ context.Context, id string) (ports.CaseRecord,
 	}
 	return c, nil
 }
-func (m *memCaseRepo7d) ListByProject(context.Context, contracts.ProjectID, int, int) ([]ports.CaseRecord, error) {
-	return nil, nil
+func (m *memCaseRepo7d) filter(pred func(ports.CaseRecord) bool) []ports.CaseRecord {
+	var out []ports.CaseRecord
+	for _, c := range m.m {
+		if pred(c) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
-func (m *memCaseRepo7d) ListByAssessment(context.Context, string, int, int) ([]ports.CaseRecord, error) {
-	return nil, nil
+func (m *memCaseRepo7d) ListByProject(_ context.Context, p contracts.ProjectID, _, _ int) ([]ports.CaseRecord, error) {
+	return m.filter(func(c ports.CaseRecord) bool { return c.ProjectID == p }), nil
 }
-func (m *memCaseRepo7d) ListByTenant(context.Context, contracts.TenantID, int, int) ([]ports.CaseRecord, error) {
-	return nil, nil
+func (m *memCaseRepo7d) ListByAssessment(_ context.Context, a string, _, _ int) ([]ports.CaseRecord, error) {
+	return m.filter(func(c ports.CaseRecord) bool { return c.AssessmentID == a }), nil
+}
+func (m *memCaseRepo7d) ListByTenant(_ context.Context, t contracts.TenantID, _, _ int) ([]ports.CaseRecord, error) {
+	return m.filter(func(c ports.CaseRecord) bool { return c.TenantID == t }), nil
 }
 
 type memReportRepo7d struct {

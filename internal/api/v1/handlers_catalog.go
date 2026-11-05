@@ -27,15 +27,17 @@ func (s *Server) handleScopes(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if _, ok := requireProjectScope(w, r); !ok {
+	projectID, ok := requireProjectScope(w, r)
+	if !ok {
 		return
 	}
-	projectID := r.URL.Query().Get("project_id")
 	if s.SDK == nil || s.SDK.Catalog == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"scopes": []any{}})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"scopes": s.SDK.Catalog.ListScopes(contracts.ProjectID(projectID))})
+	// requireProjectScope guarantees a tenant-owned project for tenant callers, so a
+	// header-only project can no longer degrade into an unfiltered (all-tenant) list.
+	writeJSON(w, http.StatusOK, map[string]any{"scopes": nonNil(s.SDK.Catalog.ListScopes(projectID))})
 }
 
 func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
@@ -43,16 +45,16 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if _, ok := requireProjectScope(w, r); !ok {
+	projectID, ok := requireProjectScope(w, r)
+	if !ok {
 		return
 	}
-	projectID := r.URL.Query().Get("project_id")
 	scopeID := r.URL.Query().Get("scope_id")
 	if s.SDK == nil || s.SDK.Catalog == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"tasks": []any{}})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tasks": s.SDK.Catalog.ListTasks(contracts.ProjectID(projectID), contracts.ScopeID(scopeID))})
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": nonNil(s.SDK.Catalog.ListTasks(projectID, contracts.ScopeID(scopeID)))})
 }
 
 func (s *Server) handleTaskByID(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +77,7 @@ func (s *Server) handleTaskByID(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "task not found")
 		return
 	}
-	if !enforceProject(w, r, t.ProjectID) {
+	if !enforceObject(w, r, "", t.ProjectID) {
 		return
 	}
 	writeJSON(w, http.StatusOK, t)

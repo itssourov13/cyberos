@@ -25,6 +25,10 @@ type Broker struct {
 	usedNonces map[string]time.Time
 	// Now overrides clock for tests.
 	Now func() time.Time
+	// Ledger is the shared durable grant lifecycle store (one-time claim,
+	// revocation, execution state). Production wiring always sets it; without it
+	// the Broker falls back to process-local nonce tracking (development only).
+	Ledger GrantLedger
 	// Signer verifies grant provenance. When set, grants not signed by the
 	// issuer (forged, altered or unissued) are rejected before any other state
 	// is touched. Production wiring always sets it.
@@ -36,6 +40,19 @@ func (b *Broker) RevokeGrant(id contracts.ExecutionGrantID) {
 	if b != nil {
 		b.Signer.Revoke(id)
 	}
+}
+
+// RevokeGrantDurable revokes a not-yet-claimed grant in the shared ledger so
+// every instance observes it, and attributes the action to an actor.
+func (b *Broker) RevokeGrantDurable(ctx context.Context, id contracts.ExecutionGrantID, actor contracts.PrincipalID, reason string) error {
+	if b == nil || b.Ledger == nil {
+		return fmt.Errorf("%w: grant ledger not configured", contracts.ErrInvalidArgument)
+	}
+	if err := b.Ledger.Revoke(ctx, id, actor, reason, b.Now()); err != nil {
+		return err
+	}
+	b.Signer.Revoke(id)
+	return nil
 }
 
 // New constructs a Tool Broker with the given executor (must be non-nil).
@@ -65,6 +82,12 @@ func NewWithHosts(hosts *execution.HostRegistry) *Broker {
 //
 // Invariant: NO VALID GRANT ⇒ NO EXECUTION
 func (b *Broker) Execute(req contracts.ExecutionRequest) (contracts.ExecutionResult, error) {
+	return b.ExecuteContext(context.Background(), req)
+}
+
+// ExecuteContext is Execute with caller cancellation/deadline propagated to the
+// ledger and the execution host.
+func (b *Broker) ExecuteContext(ctx context.Context, req contracts.ExecutionRequest) (contracts.ExecutionResult, error) {
 	if b == nil {
 		return rejected("broker not configured"), fmt.Errorf("%w: broker not configured", contracts.ErrInvalidArgument)
 	}
@@ -103,17 +126,6 @@ func (b *Broker) Execute(req contracts.ExecutionRequest) (contracts.ExecutionRes
 		return rejected(err.Error()), err
 	}
 
-	// Replay protection via nonce (Broker-level only)
-	if g.Nonce != "" {
-		b.mu.Lock()
-		if _, seen := b.usedNonces[g.Nonce]; seen {
-			b.mu.Unlock()
-			return rejected("grant nonce already used (replay)"), contracts.ErrGrantInvalid
-		}
-		b.usedNonces[g.Nonce] = now
-		b.mu.Unlock()
-	}
-
 	if len(g.Constraints.AllowedExecutorHints) > 0 {
 		_ = g.Constraints.AllowedExecutorHints
 	}
@@ -129,12 +141,39 @@ func (b *Broker) Execute(req contracts.ExecutionRequest) (contracts.ExecutionRes
 	}
 
 	// Host resolution AFTER authorization. Unknown/invalid host → fail closed.
+	// Resolve before claiming so a request for an unknown host cannot burn a grant.
+	var host execution.ExecutionHost
 	if b.Hosts != nil {
-		host, err := b.Hosts.Resolve(req)
+		h, err := b.Hosts.Resolve(req)
 		if err != nil {
 			return rejected("unknown execution host: " + err.Error()), err
 		}
-		result, err := host.Execute(context.Background(), req)
+		host = h
+	}
+
+	// One-time claim. ALL pure validation (signature, window, binding, pack
+	// digest, host) happens above so a request rejected for unrelated invalid
+	// data never consumes a legitimate grant. The claim is the last gate before
+	// dispatch and is atomic across processes when a durable ledger is wired.
+	if err := b.claim(ctx, g, now); err != nil {
+		return rejected(err.Error()), err
+	}
+	finish := func(res contracts.ExecutionResult, runErr error) {
+		if b.Ledger == nil {
+			return
+		}
+		st := string(res.Status)
+		if runErr != nil && st == "" {
+			st = string(contracts.ExecutionStatusFailed)
+		}
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = b.Ledger.Complete(cctx, g.ID, st, b.Now())
+	}
+
+	if host != nil {
+		result, err := host.Execute(ctx, req)
+		finish(result, err)
 		if err != nil {
 			return result, err
 		}
@@ -146,10 +185,29 @@ func (b *Broker) Execute(req contracts.ExecutionRequest) (contracts.ExecutionRes
 
 	// Legacy fallback (should not be used when New() registers Hosts)
 	result, err := b.executor.Execute(req)
+	finish(result, err)
 	if err != nil {
 		return result, err
 	}
 	return result, nil
+}
+
+// claim consumes the grant exactly once. With a ledger the claim is durable and
+// shared; otherwise it falls back to a process-local nonce set.
+func (b *Broker) claim(ctx context.Context, g *domaingrant.Grant, now time.Time) error {
+	if b.Ledger != nil {
+		return b.Ledger.Claim(ctx, g.ID, g.Nonce, now)
+	}
+	if g.Nonce == "" {
+		return nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if _, seen := b.usedNonces[g.Nonce]; seen {
+		return fmt.Errorf("%w: grant nonce already used (replay)", contracts.ErrGrantInvalid)
+	}
+	b.usedNonces[g.Nonce] = now
+	return nil
 }
 
 // ExecuteWithContext is like Execute but also verifies the grant matches

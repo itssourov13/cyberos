@@ -41,7 +41,7 @@ func (s *Server) handleAssetByID(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
-	if !enforceResource(w, r, "", a.ProjectID) {
+	if !enforceObject(w, r, "", a.ProjectID) {
 		return
 	}
 	writeJSON(w, http.StatusOK, a)
