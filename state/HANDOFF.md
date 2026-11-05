@@ -2,12 +2,14 @@
 
 ## Current state: Phase 24D (partial) — branch `feat/cyberos-phase-24d-integration`
 
-Phase 24C is **accepted**. 24D delivered: server-side sessions + cookie/CSRF auth, signed-grant provenance in the Broker, tenant/project isolation hardening, a live `/api/v1` frontend adapter (default; preview is opt-in), real sign-in/route guarding, and embedded production serving. Full detail and the exact remaining dependencies: `docs/PHASE24D.md`.
+Phase 24C is **accepted**. 24D delivered: server-side sessions + cookie/CSRF auth, signed grants **plus a durable issued-grant ledger** (Broker rejects forged/unissued/replayed/revoked/expired grants), server-side ownership isolation + RBAC permission checks, case status history, a live `/api/v1` frontend adapter (default; preview opt-in), real sign-in/route guarding, embedded production serving. Detail and exact remaining dependencies: `docs/PHASE24D.md`.
 
-Verified (this branch): `go build/vet/test ./...` all clean; frontend `typecheck`, `lint` (0 warnings/errors), `build` pass; a manual smoke of the embedded binary with auth required (SPA fallback 200, missing asset 404, unauthenticated API 401, bad key 401, login sets HttpOnly SameSite=Strict cookie, `/auth/me` restores the session, cookie writes without Origin are rejected).
-NOT verified: browser E2E, live use against PostgreSQL, authenticated write flows from the real UI, any UI screen beyond type/build checks.
+Verified: `go vet ./...` and `go test ./...` clean; frontend `typecheck`, `lint` (0 warnings), `build` pass; earlier manual smoke of the embedded binary (SPA fallback, 404 asset, 401s, cookie flags, `/auth/me`).
+NOT verified: any PostgreSQL run (ledger, case history, migrations 022/023; integration tests are written but skipped without a DB), browser E2E, authenticated write flows from the real UI, UI screens beyond type/build checks. `go test -race` is unusable on this kernel (ThreadSanitizer VMA error).
 
-Next: add read endpoints (workers list, packs/trust, decisions/grants/evidence/audit, assignments), wire worker/trust/assessment/report/autonomy controls, durable sessions, Vitest for the API client. Do not add authority to the browser.
+Known gap: API-key roles are not persisted/issuable, so every tenant key is `analyst`; admin-gated actions work only for the operator credential.
+
+Next: API-key roles; read endpoints (workers list, packs/trust, decisions/grants/evidence/audit, assignments); wire worker/trust/assessment/report/autonomy controls; durable sessions; Vitest for the API client. Do not add authority to the browser.
 
 ---
 ## Previous: Phase 24C notes (historical)

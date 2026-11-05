@@ -40,7 +40,9 @@
 
 
 ## Phase 24D decisions
-- **Grant provenance = HMAC-signed grants** (`broker.GrantSigner`) over authoritative fields, with server-side revocation and nonce replay; chosen over a registry to keep the stateless broker boundary and work with the existing durable nonce store. Key: `CYBEROS_GRANT_SIGNING_KEY`.
+- **Grant provenance = HMAC-signed grants + durable issued-grant ledger.** `broker.GrantSigner` signs authoritative fields (proves origin cheaply, rejects forgery before any state is touched; key `CYBEROS_GRANT_SIGNING_KEY`). The ledger (`execution_grant_ledger`, migration 023) is the authority for one-time claim, revocation and expiry via a single atomic conditional UPDATE. Signature alone cannot express revocation or cluster-safe replay protection, and a ledger alone is weaker against a ledger rollback, so both are required. Issuance fails closed if the ledger cannot record. (Supersedes the earlier signature-only decision.)
+- **Ownership comes from server-side records, never client headers.** A project/tenant named by a client is a claim to be verified. Foreign by-id reads return 404 (indistinguishable from missing); explicit cross-project declarations on writes return 403.
+- **Roles are coarse permission levels** (viewer/analyst/admin/operator) layered under tenant/project ownership; tenant credentials are never operators. Persisting/issuing roles on API keys is an open item.
 - **Sessions = server-side opaque tokens in an HttpOnly SameSite=Strict cookie + per-session CSRF header + Origin check**; login exchanges an API key. No credentials in localStorage.
 - **Live is the default API mode; preview is explicit opt-in.** Unsupported surfaces throw `ApiError('unsupported')` rather than fake data.
 - **Frontend is embedded** in the Go binary via `make web` into `internal/api/v1/static` (gitignored except PLACEHOLDER).

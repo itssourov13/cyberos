@@ -127,3 +127,5 @@ Run: `CYBEROS_ENV=production CYBEROS_COOKIE_SECURE=true CYBEROS_GRANT_SIGNING_KE
 
 Frontend (build-time, no secrets): `VITE_CYBEROS_API_BASE` (default same-origin), `VITE_CYBEROS_API_MODE` (`live` default; `preview` = fixtures, never use in production). Dev: `cd frontend && npm run dev` proxies `/api` to `127.0.0.1:8080`.
 Sessions are in memory: restart = sign in again.
+
+Migrations: apply through `023_execution_grant_ledger.sql` (`022` adds `case_status_history`; `023` adds the durable issued-grant ledger that the Broker claims against). With several API instances, all must share the same database and the same `CYBEROS_GRANT_SIGNING_KEY`. Sessions are per-instance until a durable session store exists, so use sticky routing or a single instance for now. These migrations have not yet been exercised against a live PostgreSQL in this repo's checks.
