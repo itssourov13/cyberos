@@ -1,4 +1,5 @@
-import { Suspense, useState } from 'react'
+import { Suspense, useCallback, useState } from 'react'
+import { useOverlay, useSpotlight } from '@/app/effects'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { LogOut, Menu } from 'lucide-react'
 import { useApi } from '@/api'
@@ -27,6 +28,9 @@ export function AppShell() {
   const [openAt, setOpenAt] = useState<string | null>(null)
   const navOpen = openAt === pathname
   const setNavOpen = (open: boolean) => setOpenAt(open ? pathname : null)
+  const closeNav = useCallback(() => setOpenAt(null), [])
+  useOverlay(navOpen, closeNav)
+  useSpotlight()
 
   const current = [...ALL_NAV].reverse().find((n) => (n.end ? pathname === n.to : pathname.startsWith(n.to)))
 
@@ -52,9 +56,12 @@ export function AppShell() {
         ))}
         <span className="spacer" />
         {session.principalId && (
-          <span className="muted mono truncate" style={{ padding: '0 var(--s-3)', fontSize: 12 }} title={session.tenantId ? `Tenant ${session.tenantId}` : undefined}>
-            {session.principalId}
-          </span>
+          <div className="user-chip" title={session.tenantId ? `Tenant ${session.tenantId}` : undefined}>
+            <span className="avatar" aria-hidden="true">
+              {session.principalId.slice(0, 1).toUpperCase()}
+            </span>
+            <span className="mono truncate">{session.principalId}</span>
+          </div>
         )}
         <button
           type="button"

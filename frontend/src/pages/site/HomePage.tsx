@@ -18,12 +18,18 @@ const STEPS = [
   ['Keep the proof', 'Signed results become evidence, findings, cases and reports — all traceable and auditable.'],
 ]
 
+const FACTS = [
+  ['6', 'links in the chain of custody'],
+  ['1', 'broker is the only path to execution'],
+  ['0', 'security decisions made in the browser'],
+] as const
+
 export function HomePage() {
   return (
     <>
       <section className="hero">
         <div className="container hero-inner">
-          <span className="eyebrow reveal">The cybersecurity operating platform</span>
+          <span className="hero-pill reveal"><span className="dot" aria-hidden="true" />The cybersecurity operating platform</span>
           <h1 className="reveal reveal-2">
             Authorized security operations, <em>proven</em>.
           </h1>
@@ -41,17 +47,25 @@ export function HomePage() {
           <div className="reveal reveal-4" style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
             <LiveSpine />
           </div>
+          <dl className="hero-facts reveal reveal-4">
+            {FACTS.map(([k, v]) => (
+              <div key={k}>
+                <dt>{k}</dt>
+                <dd>{v}</dd>
+              </div>
+            ))}
+          </dl>
         </div>
       </section>
 
       <section className="section">
         <div className="container">
-          <div className="section-head">
+          <div className="section-head" data-reveal>
             <span className="eyebrow">Principles</span>
             <h2>Built so that “allowed” has to be earned.</h2>
             <p>Security tooling is powerful and dangerous. CYBEROS puts the authority in one place and makes the rest of the system prove it asked.</p>
           </div>
-          <div className="cards">
+          <div className="cards" data-stagger>
             {PILLARS.map((p) => (
               <article key={p.title} className="card" data-tone={p.tone}>
                 <span className="ico">
@@ -67,12 +81,12 @@ export function HomePage() {
 
       <section className="section">
         <div className="container">
-          <div className="section-head">
+          <div className="section-head" data-reveal>
             <span className="eyebrow">Five things that are not the same</span>
             <h2>Integrity ≠ Signature ≠ Trust ≠ Authorization ≠ Execution</h2>
             <p>Most platforms blur these together. CYBEROS keeps each one a separate, inspectable decision.</p>
           </div>
-          <div className="distinct">
+          <div className="distinct" data-reveal>
             <div><strong>Integrity</strong><span>The bytes match the digest.</span></div>
             <div><strong>Signature</strong><span>A known key vouches for those bytes.</span></div>
             <div><strong>Trust</strong><span>An administrator chose to rely on that publisher.</span></div>
@@ -84,11 +98,11 @@ export function HomePage() {
 
       <section className="section">
         <div className="container">
-          <div className="section-head">
+          <div className="section-head" data-reveal>
             <span className="eyebrow">Workflow</span>
             <h2>From engagement to evidence, one line of custody.</h2>
           </div>
-          <ol className="steps">
+          <ol className="steps" data-stagger>
             {STEPS.map(([t, d]) => (
               <li key={t} className="step">
                 <div>
@@ -103,11 +117,11 @@ export function HomePage() {
 
       <section className="section">
         <div className="container">
-          <div className="cta-band">
+          <div className="cta-band" data-reveal>
             <ScrollText size={26} color="var(--accent)" aria-hidden="true" />
             <h2>Explore the operator console</h2>
             <p className="dim" style={{ maxWidth: '56ch' }}>
-              The console currently runs on built-in sample data so you can walk every workflow. Live API integration follows in the next phase.
+              Walk every workflow in the operator console — from scope and decision to grant, execution and evidence.
             </p>
             <Link to="/app" className="btn btn-primary btn-lg">
               Open the console <ArrowRight size={16} />
