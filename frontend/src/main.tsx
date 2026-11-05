@@ -5,6 +5,7 @@ import '@/design/tokens.css'
 import '@/design/base.css'
 import '@/design/ui.css'
 import '@/design/layout.css'
+import '@/design/polish.css'
 import { Providers } from '@/app/providers/Providers'
 import { router } from '@/app/router'
 

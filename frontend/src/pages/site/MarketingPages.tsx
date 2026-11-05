@@ -55,7 +55,7 @@ export function ArchitecturePage() {
           <div className="panel" style={{ padding: 'var(--s-5)' }}>
             <SpineFlow stages={SPINE_ALL_PASS} />
           </div>
-          <ol className="steps">
+          <ol className="steps" data-stagger>
             {STAGE_ORDER.map((s) => (
               <li key={s.id} className="step">
                 <div>
@@ -65,7 +65,7 @@ export function ArchitecturePage() {
               </li>
             ))}
           </ol>
-          <div className="prose">
+          <div className="prose" data-reveal>
             <h2>Remote execution</h2>
             <p className="mono">Broker → Remote Host → mTLS Worker → Assignment → Signed Result → Verification → Audit</p>
             <p>Remote workers never self-authorise. They hold a leased assignment issued by the control plane, execute, and return a signed result that the backend verifies before it becomes evidence.</p>
