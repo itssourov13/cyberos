@@ -1,93 +1,91 @@
-import type { ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
+import { ArrowDown, ArrowUp } from 'lucide-react'
+import { cx } from '@/lib/format'
+import { Empty } from './primitives'
 
-export function DataTable({ headers, children }: { headers: string[]; children: ReactNode }) {
+export interface Column<T> {
+  key: string
+  header: string
+  render: (row: T) => ReactNode
+  /** Provide a sort key to make the column sortable. */
+  sort?: (row: T) => string | number
+  align?: 'right'
+  className?: string
+}
+
+interface Props<T> {
+  columns: Column<T>[]
+  rows: T[]
+  rowKey: (row: T) => string
+  onRowClick?: (row: T) => void
+  selectedKey?: string
+  emptyTitle?: string
+  caption: string
+}
+
+export function DataTable<T>({ columns, rows, rowKey, onRowClick, selectedKey, emptyTitle = 'Nothing to show', caption }: Props<T>) {
+  const [sort, setSort] = useState<{ key: string; dir: 1 | -1 } | null>(null)
+
+  const sorted = useMemo(() => {
+    if (!sort) return rows
+    const col = columns.find((c) => c.key === sort.key)
+    if (!col?.sort) return rows
+    const get = col.sort
+    return [...rows].sort((a, b) => {
+      const x = get(a)
+      const y = get(b)
+      return (x < y ? -1 : x > y ? 1 : 0) * sort.dir
+    })
+  }, [rows, sort, columns])
+
+  const toggle = (key: string) => setSort((s) => (s?.key === key ? (s.dir === 1 ? { key, dir: -1 } : null) : { key, dir: 1 }))
+
+  if (rows.length === 0) return <Empty title={emptyTitle} />
+
   return (
-    <div className="ops-panel overflow-x-auto">
-      <table className="w-full min-w-[640px] text-left text-[13px]">
-        <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-2)] text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+    <div className="table-wrap">
+      <table className="tbl">
+        <caption className="sr-only">{caption}</caption>
+        <thead>
           <tr>
-            {headers.map((h) => (
-              <th key={h} className="px-3 py-2.5 font-medium">
-                {h}
-              </th>
-            ))}
+            {columns.map((c) => {
+              const active = sort?.key === c.key
+              return (
+                <th key={c.key} scope="col" className={cx(c.sort && 'sortable', c.align === 'right' && 'right')} aria-sort={active ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}>
+                  {c.sort ? (
+                    <button type="button" className="th-btn" onClick={() => toggle(c.key)}>
+                      {c.header}
+                      {active && (sort.dir === 1 ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                    </button>
+                  ) : (
+                    c.header
+                  )}
+                </th>
+              )
+            })}
           </tr>
         </thead>
-        <tbody className="divide-y divide-[var(--color-border)]">{children}</tbody>
+        <tbody>
+          {sorted.map((row) => {
+            const k = rowKey(row)
+            return (
+              <tr
+                key={k}
+                className={cx(onRowClick && 'clickable', selectedKey === k && 'selected')}
+                tabIndex={onRowClick ? 0 : undefined}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+                onKeyDown={onRowClick ? (e) => e.key === 'Enter' && onRowClick(row) : undefined}
+              >
+                {columns.map((c) => (
+                  <td key={c.key} className={cx(c.align === 'right' && 'right', c.className)}>
+                    {c.render(row)}
+                  </td>
+                ))}
+              </tr>
+            )
+          })}
+        </tbody>
       </table>
-    </div>
-  )
-}
-
-export function SearchInput({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: string
-  onChange: (v: string) => void
-  placeholder?: string
-}) {
-  return (
-    <input
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder ?? 'Search…'}
-      className="w-full max-w-xs rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1.5 text-[13px] outline-none transition-colors focus:border-[var(--color-border-focus)]"
-      aria-label={placeholder ?? 'Search'}
-    />
-  )
-}
-
-export function SeverityBadge({ severity }: { severity: string }) {
-  const s = severity.toUpperCase()
-  const map: Record<string, string> = {
-    CRITICAL: 'bg-red-600/15 text-red-300 border-red-500/35',
-    HIGH: 'bg-orange-500/12 text-orange-300 border-orange-500/30',
-    MEDIUM: 'bg-amber-500/12 text-amber-200 border-amber-500/25',
-    LOW: 'bg-sky-500/12 text-sky-300 border-sky-500/25',
-    INFO: 'bg-slate-500/12 text-slate-300 border-slate-500/25',
-  }
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border px-2 py-0.5 text-[11px] font-medium ${map[s] ?? map.INFO}`}
-    >
-      <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
-      {s}
-    </span>
-  )
-}
-
-export function ConfirmDialog({
-  open,
-  title,
-  body,
-  confirmLabel,
-  onConfirm,
-  onCancel,
-}: {
-  open: boolean
-  title: string
-  body: ReactNode
-  confirmLabel: string
-  onConfirm: () => void
-  onCancel: () => void
-}) {
-  if (!open) return null
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-[2px]" role="dialog" aria-modal>
-      <div className="w-full max-w-md rounded-[var(--radius-lg)] border border-orange-500/35 bg-[var(--color-surface-1)] p-5 shadow-2xl">
-        <h2 className="text-sm font-semibold tracking-wide text-orange-100">{title}</h2>
-        <div className="mt-3 text-[13px] text-[var(--color-muted)]">{body}</div>
-        <div className="mt-5 flex justify-end gap-2">
-          <button type="button" onClick={onCancel} className="ops-btn ops-btn-secondary">
-            Cancel
-          </button>
-          <button type="button" onClick={onConfirm} className="ops-btn ops-btn-danger">
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
     </div>
   )
 }

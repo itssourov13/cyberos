@@ -16,8 +16,9 @@ Status labels: **DONE** · **PARTIAL** · **DEFERRED** · **UNVERIFIED**
 | 23B | CLI operator surfaces | **DONE** |
 | 23C | Docs + live integration skip harness | **DONE** (committed HEAD family) |
 | 24A | Web UI design specification | **DONE** (design doc) |
-| 24B | Frontend Parts 1–3 + D1–D5 (MOCK UI) | **PARTIAL** — source under `frontend/`; often **uncommitted**; no real API |
-| 24C | Real `/api/v1` integration | **DEFERRED** |
+| 24B | Frontend Parts 1–3 + D1–D5 (old MOCK UI) | **SUPERSEDED** — old demo UI retired by 24C |
+| 24C | Clean-slate frontend (React/TS/Vite) on preview data | **IMPLEMENTED; post-audit fixes applied; owner re-verification pending** |
+| 24D | Real `/api/v1` integration, authentication, remaining backend gaps | **DEFERRED** (needs owner acceptance of 24C) |
 | 25+ | Marketplace / JARVIS / further product | **DEFERRED** |
 
 ## Live verification
@@ -28,4 +29,20 @@ PostgreSQL, multi-worker, and mTLS fleet checks **SKIP** unless `DATABASE_URL` /
 
 1. Keep docs aligned with code (`docs/AUDIT_FINAL_24B.md`)
 2. Explicitly commit or quarantine `frontend/`
-3. **24C** only with approval: thin client → real API, no authority in browser
+3. **24D** only with approval: thin client → real API, no authority in browser
+
+## Phase 24C — Clean-slate frontend (implemented; audit fixes applied; re-verification pending)
+New public site, sign-in screen and 24-route operator console on preview data. See `docs/FRONTEND_REBUILD.md`.
+
+## Phase 24D — Backend integration (NOT started; needs owner acceptance of 24C)
+- Live `/api/v1` adapter implementing `CyberosApi` (swap one line in `frontend/src/api/index.ts`)
+- Real authentication/session; sign-in form activation
+- Endpoints: assessments, decisions, grants, executions, provenance graph, autonomy status, worker/trust admin actions, report download
+- Serve the built `frontend/dist` from the Go server (replace placeholder `internal/api/v1/static/index.html`, mind `//go:embed`)
+
+### Post-audit fix pass (applies to 24C)
+- API: authenticated principal is now authoritative for evaluate, grants, assessment create and workflow start; `/execute` requires the presenting principal to own the grant.
+- Dev server binds `127.0.0.1:8080` by default; non-loopback listen without mandatory auth is refused; `http.Server` timeouts configured.
+- Vite upgraded to 8.3.5 (+ `@vitejs/plugin-react` 6.2.1).
+- Preview adapter: strict target-in-scope validation; fake `sha256:` identifiers replaced with `sample:` identifiers.
+- Open concern for 24D / backend phase: the Broker validates a client-supplied grant structurally and by expiry/nonce but there is no server-side registry proving the grant was issued by the Control Plane (see `state/HANDOFF.md`).

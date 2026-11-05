@@ -2,8 +2,11 @@
 package config
 
 import (
+	"fmt"
+	"net"
 	"os"
 	"strings"
+	"time"
 
 	"cyberos/internal/secrets"
 )
@@ -12,13 +15,19 @@ import (
 // Sensitive material is referenced by secrets.Ref, never stored as plaintext fields
 // intended for events/audit/task state.
 type Config struct {
-	Env          string
-	LogLevel     string
-	LogFormat    string
-	APIAddr      string
-	DatabaseURL  string
-	AuthRequired bool   // production mandatory API auth (Phase 6H)
-	BootstrapKey string // optional bootstrap API key plaintext for local/dev only
+	Env       string
+	LogLevel  string
+	LogFormat string
+	APIAddr   string // listen address; development default is loopback-only
+
+	// HTTP server timeouts (defaults chosen to keep SSE and slow clients safe; SSE clears its own write deadline).
+	APIReadHeaderTimeout time.Duration
+	APIReadTimeout       time.Duration
+	APIWriteTimeout      time.Duration
+	APIIdleTimeout       time.Duration
+	DatabaseURL          string
+	AuthRequired         bool   // production mandatory API auth (Phase 6H)
+	BootstrapKey         string // optional bootstrap API key plaintext for local/dev only
 
 	// Process runtime (Phase 9A) — fail-closed by default.
 	ProcessEnabled     bool
@@ -33,23 +42,30 @@ type Config struct {
 	SecretRefs map[string]secrets.Ref
 }
 
+// DefaultAPIAddr binds to loopback only so a development server is not reachable from the network.
+const DefaultAPIAddr = "127.0.0.1:8080"
+
 // Load reads configuration from environment variables with sensible defaults.
 func Load() *Config {
 	c := &Config{
-		Env:                getEnv("CYBEROS_ENV", "development"),
-		LogLevel:           getEnv("CYBEROS_LOG_LEVEL", "info"),
-		LogFormat:          getEnv("CYBEROS_LOG_FORMAT", "json"),
-		APIAddr:            getEnv("CYBEROS_API_ADDR", ":8080"),
-		DatabaseURL:        getEnv("CYBEROS_DATABASE_URL", "postgres://cyberos:cyberos@localhost:5432/cyberos?sslmode=disable"),
-		AuthRequired:       getEnvBool("CYBEROS_AUTH_REQUIRED", false),
-		BootstrapKey:       getEnv("CYBEROS_BOOTSTRAP_API_KEY", ""),
-		ProcessEnabled:     getEnvBool("CYBEROS_PROCESS_ENABLED", false),
-		ProcessAllowShell:  getEnvBool("CYBEROS_PROCESS_ALLOW_SHELL", false),
-		ProcessAllowedBins: splitCSV(getEnv("CYBEROS_PROCESS_ALLOWED_BINS", "")),
-		ProcessAllowedDirs: splitCSV(getEnv("CYBEROS_PROCESS_ALLOWED_DIRS", "")),
-		ProcessTimeout:     getEnv("CYBEROS_PROCESS_TIMEOUT", "10s"),
-		ProcessMaxOutput:   getEnvInt64("CYBEROS_PROCESS_MAX_OUTPUT_BYTES", 0),
-		SecretRefs:         map[string]secrets.Ref{},
+		Env:                  getEnv("CYBEROS_ENV", "development"),
+		LogLevel:             getEnv("CYBEROS_LOG_LEVEL", "info"),
+		LogFormat:            getEnv("CYBEROS_LOG_FORMAT", "json"),
+		APIAddr:              getEnv("CYBEROS_API_ADDR", DefaultAPIAddr),
+		APIReadHeaderTimeout: getEnvDuration("CYBEROS_API_READ_HEADER_TIMEOUT", 10*time.Second),
+		APIReadTimeout:       getEnvDuration("CYBEROS_API_READ_TIMEOUT", 30*time.Second),
+		APIWriteTimeout:      getEnvDuration("CYBEROS_API_WRITE_TIMEOUT", 120*time.Second),
+		APIIdleTimeout:       getEnvDuration("CYBEROS_API_IDLE_TIMEOUT", 120*time.Second),
+		DatabaseURL:          getEnv("CYBEROS_DATABASE_URL", "postgres://cyberos:cyberos@localhost:5432/cyberos?sslmode=disable"),
+		AuthRequired:         getEnvBool("CYBEROS_AUTH_REQUIRED", false),
+		BootstrapKey:         getEnv("CYBEROS_BOOTSTRAP_API_KEY", ""),
+		ProcessEnabled:       getEnvBool("CYBEROS_PROCESS_ENABLED", false),
+		ProcessAllowShell:    getEnvBool("CYBEROS_PROCESS_ALLOW_SHELL", false),
+		ProcessAllowedBins:   splitCSV(getEnv("CYBEROS_PROCESS_ALLOWED_BINS", "")),
+		ProcessAllowedDirs:   splitCSV(getEnv("CYBEROS_PROCESS_ALLOWED_DIRS", "")),
+		ProcessTimeout:       getEnv("CYBEROS_PROCESS_TIMEOUT", "10s"),
+		ProcessMaxOutput:     getEnvInt64("CYBEROS_PROCESS_MAX_OUTPUT_BYTES", 0),
+		SecretRefs:           map[string]secrets.Ref{},
 	}
 	// Production environment defaults to auth required unless explicitly disabled.
 	if c.Env == "production" && os.Getenv("CYBEROS_AUTH_REQUIRED") == "" {
@@ -129,4 +145,56 @@ func getEnvBool(key string, fallback bool) bool {
 	default:
 		return fallback
 	}
+}
+
+func getEnvDuration(key string, fallback time.Duration) time.Duration {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return fallback
+	}
+	return d
+}
+
+// IsLoopbackAddr reports whether a host:port listen address binds only to loopback.
+// Wildcard hosts (empty, 0.0.0.0, ::) and any non-IP hostname other than "localhost"
+// are treated as network-accessible. Unparseable addresses return an error.
+func IsLoopbackAddr(addr string) (bool, error) {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil {
+		return false, fmt.Errorf("invalid listen address %q: %w", addr, err)
+	}
+	if i := strings.IndexByte(host, '%'); i >= 0 { // IPv6 zone
+		host = host[:i]
+	}
+	if host == "" {
+		return false, nil // wildcard
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true, nil
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false, nil // unknown hostname: assume reachable
+	}
+	if ip.IsUnspecified() {
+		return false, nil
+	}
+	return ip.IsLoopback(), nil
+}
+
+// ValidateListenSecurity fails closed when a network-accessible listen address is
+// configured without mandatory authentication.
+func ValidateListenSecurity(addr string, authRequired bool) error {
+	loop, err := IsLoopbackAddr(addr)
+	if err != nil {
+		return err
+	}
+	if !loop && !authRequired {
+		return fmt.Errorf("refusing to listen on non-loopback address %q without authentication: set CYBEROS_AUTH_REQUIRED=true or bind to 127.0.0.1", addr)
+	}
+	return nil
 }

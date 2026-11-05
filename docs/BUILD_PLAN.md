@@ -127,3 +127,15 @@ flowchart TD
 - Do not implement modules out of order.
 - Do not introduce real offensive tools or unrestricted execution before the control plane and Tool Broker are solid.
 - Stop and validate at the end of each major phase.
+
+## Phase 24C — Frontend rebuild milestones
+1. [x] Retire old UI in `frontend/src`, `web/ui`, `internal/api/v1/static` (placeholder kept for embed)
+2. [x] Design tokens, base/ui/layout CSS, primitives, DataTable, Drawer, Async, charts, badges, SpineFlow, logo
+3. [x] API seam + preview adapter; providers (theme, toast, api)
+4. [x] Router, SiteLayout, AppShell, nav model
+5. [x] Public site (home, platform, architecture, security) and sign-in UI
+6. [x] Console pages: dashboard, engagements, intelligence, control plane, proof, fleet/supply, platform
+7. [x] Documentation + handoff
+8. [x] Post-audit fixes (principal binding, listen safety, Vite 8.3.5, TS inference, preview scope validation, sample identifiers, lint)
+8b. [ ] Owner re-verification (typecheck, lint, build, go tests) and acceptance
+9. [ ] Phase 24D integration (separate approval)

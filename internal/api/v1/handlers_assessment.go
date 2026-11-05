@@ -34,7 +34,14 @@ func (s *Server) handleAssessments(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "invalid json")
 			return
 		}
-		a, err := s.SDK.CreateAssessment(body.ID, body.ProjectID, body.ScopeID, body.PrincipalID, body.Title, body.Target)
+		principal, ok := s.bindPrincipal(w, r, contracts.PrincipalID(body.PrincipalID))
+		if !ok {
+			return
+		}
+		if !enforceProject(w, r, contracts.ProjectID(body.ProjectID)) {
+			return
+		}
+		a, err := s.SDK.CreateAssessment(body.ID, body.ProjectID, body.ScopeID, string(principal), body.Title, body.Target)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return

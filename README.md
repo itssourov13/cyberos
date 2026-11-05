@@ -13,8 +13,9 @@ This is **not** only a scanner, dashboard, or chatbot. It is an auditable execut
 | Remote mTLS + assignment + signed results | **CONFIRMED** (unit); live fleet **UNVERIFIED** without env |
 | API / CLI / SDK | **CONFIRMED** |
 | PostgreSQL durability | **PARTIAL** (migrations + adapters); live **UNVERIFIED** without `DATABASE_URL` |
-| Web UI (`frontend/`) | **PARTIAL** — MOCK thin client; **not** API-integrated (Phase 24C **DEFERRED**) |
-| Git HEAD (committed) | Phase **23C** docs/harness (`be855b9` family); see `docs/AUDIT_FINAL_24B.md` |
+| Web UI (`frontend/`) | **Phase 24C implemented; audit fixes applied; re-verification pending** — clean-slate React/TS/Vite 8 site + console on preview data; **not** API-integrated (Phase 24D pending owner acceptance). See `docs/FRONTEND_REBUILD.md` |
+| Git HEAD (committed) | Phase **23C** docs/harness (`be855b9` family). `docs/AUDIT_FINAL_24B.md` is **historical** (pre-24C); the latest state is the post-24C audit plus the fix pass recorded in `state/HANDOFF.md` |
+| API listen address | Dev default `127.0.0.1:8080`. A non-loopback `CYBEROS_API_ADDR` requires `CYBEROS_AUTH_REQUIRED=true` (startup is refused otherwise). Timeouts: `CYBEROS_API_{READ_HEADER,READ,WRITE,IDLE}_TIMEOUT` |
 
 Highest tag seen: **v0.15.0**. Frontend may exist as uncommitted worktree content.
 
@@ -61,7 +62,7 @@ internal/            # Go implementation (private)
   sdk/               # NewInMemory / NewProduction
   ai/                # Optional; isolated from Broker
 migrations/          # PostgreSQL versioned schema
-frontend/            # React operator console (MOCK API; thin client)
+frontend/            # React site + operator console (preview adapter; thin, non-authoritative client)
 docs/                # Architecture, security, phase notes
 tests/               # Integration harnesses (skip without env)
 ```
@@ -79,6 +80,7 @@ tests/               # Integration harnesses (skip without env)
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Phase status |
 | [docs/API.md](docs/API.md) | API boundary |
 | [frontend/README.md](frontend/README.md) | UI thin-client notes |
+| [docs/FRONTEND_REBUILD.md](docs/FRONTEND_REBUILD.md) | Phase 24C frontend rebuild |
 
 ## What must not be bypassed
 

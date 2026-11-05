@@ -7,3 +7,7 @@
 
 ## Next
 Awaiting explicit approval for Phase 16.
+
+
+## Frontend (Phase 24C)
+Clean-slate React/TS/Vite console in `frontend/`, running on a preview adapter. Backend unchanged. Details: `docs/FRONTEND_REBUILD.md`.

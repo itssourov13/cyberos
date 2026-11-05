@@ -85,7 +85,11 @@ func (s *Server) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	if !enforceProject(w, r, body.Definition.ProjectID) {
 		return
 	}
-	run, err := s.SDK.StartWorkflow(r.Context(), body.Definition, body.PrincipalID, body.RunID)
+	principal, ok := s.bindPrincipal(w, r, body.PrincipalID)
+	if !ok {
+		return
+	}
+	run, err := s.SDK.StartWorkflow(r.Context(), body.Definition, principal, body.RunID)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
