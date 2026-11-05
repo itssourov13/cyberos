@@ -129,10 +129,30 @@ func NewAPIKeyAuthenticator(store KeyStore) *APIKeyAuthenticator {
 	return &APIKeyAuthenticator{Store: store, Now: func() time.Time { return time.Now().UTC() }}
 }
 
-// Issue creates a new API key and returns the plaintext secret once.
+// Issue creates a new API key and returns the plaintext secret once. Tenant
+// keys issued this way are analysts; use IssueWithRole for other levels.
 func (a *APIKeyAuthenticator) Issue(ctx context.Context, principalID contracts.PrincipalID, tenantID contracts.TenantID, ttl time.Duration) (plaintext string, key APIKey, err error) {
+	role := RoleAnalyst
+	if tenantID == "" {
+		role = RoleOperator
+	}
+	return a.IssueWithRole(ctx, principalID, tenantID, role, ttl)
+}
+
+// IssueWithRole issues a key with an explicit role. A tenant-less key is the
+// platform operator and a tenant-scoped key can never be an operator.
+func (a *APIKeyAuthenticator) IssueWithRole(ctx context.Context, principalID contracts.PrincipalID, tenantID contracts.TenantID, role Role, ttl time.Duration) (plaintext string, key APIKey, err error) {
 	if principalID == "" {
 		return "", APIKey{}, fmt.Errorf("%w: principal required", contracts.ErrInvalidArgument)
+	}
+	if !ValidRole(string(role)) {
+		return "", APIKey{}, fmt.Errorf("%w: unknown role %q", contracts.ErrInvalidArgument, role)
+	}
+	if tenantID != "" && role == RoleOperator {
+		return "", APIKey{}, fmt.Errorf("%w: a tenant-scoped key cannot be an operator", contracts.ErrInvalidArgument)
+	}
+	if tenantID == "" && role != RoleOperator {
+		return "", APIKey{}, fmt.Errorf("%w: a tenant-less key is the platform operator", contracts.ErrInvalidArgument)
 	}
 	secret, err := randomHex(24)
 	if err != nil {
@@ -143,7 +163,7 @@ func (a *APIKeyAuthenticator) Issue(ctx context.Context, principalID contracts.P
 	sum := sha256.Sum256([]byte(full))
 	key = APIKey{
 		ID: "key-" + prefix, Prefix: prefix, Hash: hex.EncodeToString(sum[:]),
-		PrincipalID: principalID, TenantID: tenantID, Active: true, CreatedAt: a.Now(),
+		PrincipalID: principalID, TenantID: tenantID, Role: role, Active: true, CreatedAt: a.Now(),
 	}
 	if ttl > 0 {
 		exp := a.Now().Add(ttl)
