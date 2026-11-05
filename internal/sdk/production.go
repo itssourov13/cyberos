@@ -2,7 +2,9 @@ package sdk
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	appscope "cyberos/internal/application/scope"
@@ -113,6 +115,21 @@ func NewProduction(ctx context.Context, cfg *config.Config, migrationsDir string
 		Reports:    reports.NewService().WithRepository(repos.Reports),
 		ExecReg:    execReg,
 		Auth:       authenticator,
+	}
+	var grantKey []byte
+	if cfg.GrantSigningKey != "" {
+		grantKey, err = hex.DecodeString(strings.TrimSpace(cfg.GrantSigningKey))
+		if err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("CYBEROS_GRANT_SIGNING_KEY must be hex: %w", err)
+		}
+	} else if cfg.Env == "production" {
+		_ = db.Close()
+		return nil, fmt.Errorf("CYBEROS_GRANT_SIGNING_KEY required when CYBEROS_ENV=production")
+	}
+	if err := c.EnableGrantProvenance(grantKey); err != nil {
+		_ = db.Close()
+		return nil, err
 	}
 	_ = c.Catalog.RefreshFromRepos(ctx, repos)
 	c.WireAssessment()

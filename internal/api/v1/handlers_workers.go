@@ -40,8 +40,17 @@ func (s *Server) handleWorkerRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	// Tenant ownership is bound from the authenticated identity, never the body.
+	tenant := contracts.TenantID(body.TenantID)
+	if ct := callerTenant(r); ct != "" {
+		if tenant != "" && tenant != ct {
+			writeErr(w, http.StatusForbidden, "tenant_id does not match the authenticated tenant")
+			return
+		}
+		tenant = ct
+	}
 	worker, err := s.Workers.Register(r.Context(), execution.Worker{
-		ID: body.ID, ProjectID: project, TenantID: contracts.TenantID(body.TenantID),
+		ID: body.ID, ProjectID: project, TenantID: tenant,
 		HostID: execution.HostID(body.HostID), CredentialRef: body.CredentialRef,
 		CertFingerprint: body.CertFingerprint, Capabilities: body.Capabilities,
 		Status: execution.WorkerPending,

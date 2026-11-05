@@ -28,6 +28,15 @@ type Config struct {
 	DatabaseURL          string
 	AuthRequired         bool   // production mandatory API auth (Phase 6H)
 	BootstrapKey         string // optional bootstrap API key plaintext for local/dev only
+	// GrantSigningKey is a hex-encoded secret (>=32 bytes) used to sign ExecutionGrants.
+	// Required when Env=production; development falls back to an ephemeral per-process key.
+	GrantSigningKey string
+	// Session/cookie settings (Phase 24D). AllowedOrigins are extra trusted
+	// origins for cookie-authenticated writes (same-origin is always allowed).
+	SessionTTL     time.Duration
+	SessionIdle    time.Duration
+	CookieSecure   bool
+	AllowedOrigins []string
 
 	// Process runtime (Phase 9A) — fail-closed by default.
 	ProcessEnabled     bool
@@ -59,6 +68,11 @@ func Load() *Config {
 		DatabaseURL:          getEnv("CYBEROS_DATABASE_URL", "postgres://cyberos:cyberos@localhost:5432/cyberos?sslmode=disable"),
 		AuthRequired:         getEnvBool("CYBEROS_AUTH_REQUIRED", false),
 		BootstrapKey:         getEnv("CYBEROS_BOOTSTRAP_API_KEY", ""),
+		GrantSigningKey:      getEnv("CYBEROS_GRANT_SIGNING_KEY", ""),
+		SessionTTL:           getEnvDuration("CYBEROS_SESSION_TTL", 12*time.Hour),
+		SessionIdle:          getEnvDuration("CYBEROS_SESSION_IDLE", 30*time.Minute),
+		CookieSecure:         getEnvBool("CYBEROS_COOKIE_SECURE", false),
+		AllowedOrigins:       splitCSV(getEnv("CYBEROS_ALLOWED_ORIGINS", "")),
 		ProcessEnabled:       getEnvBool("CYBEROS_PROCESS_ENABLED", false),
 		ProcessAllowShell:    getEnvBool("CYBEROS_PROCESS_ALLOW_SHELL", false),
 		ProcessAllowedBins:   splitCSV(getEnv("CYBEROS_PROCESS_ALLOWED_BINS", "")),

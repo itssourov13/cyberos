@@ -15,12 +15,19 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"projects": []any{}})
 		return
 	}
+	if t := callerTenant(r); t != "" {
+		writeJSON(w, http.StatusOK, map[string]any{"projects": nonNil(s.SDK.Catalog.ListProjectsForTenant(t))})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"projects": s.SDK.Catalog.ListProjects()})
 }
 
 func (s *Server) handleScopes(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if _, ok := requireProjectScope(w, r); !ok {
 		return
 	}
 	projectID := r.URL.Query().Get("project_id")
@@ -34,6 +41,9 @@ func (s *Server) handleScopes(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if _, ok := requireProjectScope(w, r); !ok {
 		return
 	}
 	projectID := r.URL.Query().Get("project_id")
@@ -65,6 +75,9 @@ func (s *Server) handleTaskByID(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "task not found")
 		return
 	}
+	if !enforceProject(w, r, t.ProjectID) {
+		return
+	}
 	writeJSON(w, http.StatusOK, t)
 }
 
@@ -76,9 +89,18 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	var projects, scopes, tasks, caps int
 	if s.SDK != nil {
 		if s.SDK.Catalog != nil {
-			projects = len(s.SDK.Catalog.ListProjects())
-			scopes = len(s.SDK.Catalog.ListScopes(""))
-			tasks = len(s.SDK.Catalog.ListTasks("", ""))
+			if t := callerTenant(r); t != "" {
+				// Tenant callers see counts for their own projects only.
+				for _, p := range s.SDK.Catalog.ListProjectsForTenant(t) {
+					projects++
+					scopes += len(s.SDK.Catalog.ListScopes(p.ID))
+					tasks += len(s.SDK.Catalog.ListTasks(p.ID, ""))
+				}
+			} else {
+				projects = len(s.SDK.Catalog.ListProjects())
+				scopes = len(s.SDK.Catalog.ListScopes(""))
+				tasks = len(s.SDK.Catalog.ListTasks("", ""))
+			}
 		}
 		if s.SDK.Caps != nil {
 			list, _ := s.SDK.ListCapabilities(r.Context())
@@ -92,4 +114,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"capabilities": caps,
 		"security":     "Scope → Principal → Control Plane → Grant → Broker → Sandbox",
 	})
+}
+
+func nonNil[T any](v []T) []T {
+	if v == nil {
+		return []T{}
+	}
+	return v
 }

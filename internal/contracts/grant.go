@@ -67,6 +67,11 @@ type ExecutionGrant struct {
 	PackContentDigest string `json:"pack_content_digest,omitempty"`
 	// PackKeyID is signer provenance only — does NOT authorize execution.
 	PackKeyID string `json:"pack_key_id,omitempty"`
+
+	// Signature is the issuer's HMAC over the authoritative grant fields.
+	// Set only by the server-side GrantIssuer; the Broker rejects grants whose
+	// signature does not verify (Phase 24D grant provenance).
+	Signature string `json:"signature,omitempty"`
 }
 
 

@@ -1,0 +1,2 @@
+Committed so //go:embed all:static compiles before the first frontend build.
+Run `make web` to populate this directory (contents are gitignored).

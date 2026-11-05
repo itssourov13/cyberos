@@ -13,6 +13,8 @@ type ProjectView struct {
 	Name        string              `json:"name"`
 	Description string              `json:"description,omitempty"`
 	CreatedAt   time.Time           `json:"created_at"`
+	// TenantID is the owning tenant; used only for server-side isolation checks.
+	TenantID contracts.TenantID `json:"tenant_id,omitempty"`
 }
 
 // ScopeView is a UI/API-facing scope summary.
@@ -97,6 +99,25 @@ func (c *Catalog) ListProjects() []ProjectView {
 	out := make([]ProjectView, 0, len(c.projects))
 	for _, p := range c.projects {
 		out = append(out, p)
+	}
+	return out
+}
+
+// ProjectTenant returns the owning tenant of a project and whether it is known.
+func (c *Catalog) ProjectTenant(id contracts.ProjectID) (contracts.TenantID, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	p, ok := c.projects[id]
+	return p.TenantID, ok
+}
+
+// ListProjectsForTenant returns only projects owned by the tenant.
+func (c *Catalog) ListProjectsForTenant(t contracts.TenantID) []ProjectView {
+	var out []ProjectView
+	for _, p := range c.ListProjects() {
+		if t != "" && p.TenantID == t {
+			out = append(out, p)
+		}
 	}
 	return out
 }

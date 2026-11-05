@@ -1,5 +1,17 @@
 # Handoff
 
+## Current state: Phase 24D (partial) — branch `feat/cyberos-phase-24d-integration`
+
+Phase 24C is **accepted**. 24D delivered: server-side sessions + cookie/CSRF auth, signed-grant provenance in the Broker, tenant/project isolation hardening, a live `/api/v1` frontend adapter (default; preview is opt-in), real sign-in/route guarding, and embedded production serving. Full detail and the exact remaining dependencies: `docs/PHASE24D.md`.
+
+Verified (this branch): `go build/vet/test ./...` all clean; frontend `typecheck`, `lint` (0 warnings/errors), `build` pass; a manual smoke of the embedded binary with auth required (SPA fallback 200, missing asset 404, unauthenticated API 401, bad key 401, login sets HttpOnly SameSite=Strict cookie, `/auth/me` restores the session, cookie writes without Origin are rejected).
+NOT verified: browser E2E, live use against PostgreSQL, authenticated write flows from the real UI, any UI screen beyond type/build checks.
+
+Next: add read endpoints (workers list, packs/trust, decisions/grants/evidence/audit, assignments), wire worker/trust/assessment/report/autonomy controls, durable sessions, Vitest for the API client. Do not add authority to the browser.
+
+---
+## Previous: Phase 24C notes (historical)
+
 ## Current state: Phase 24C frontend + post-audit fix pass — implemented, UNVERIFIED
 
 Backend remains the Go modular monolith (spine: Scope → Auth → CP → Decision → Grant → Broker → Sandbox → Executor). `docs/AUDIT_FINAL_24B.md` is historical; the latest state is the post-24C audit and this fix pass.

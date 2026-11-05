@@ -39,6 +39,12 @@
 **Rationale:** Simple and self-contained. Can be changed to a full module path (e.g. github.com/…) later if the project is published.
 
 
+## Phase 24D decisions
+- **Grant provenance = HMAC-signed grants** (`broker.GrantSigner`) over authoritative fields, with server-side revocation and nonce replay; chosen over a registry to keep the stateless broker boundary and work with the existing durable nonce store. Key: `CYBEROS_GRANT_SIGNING_KEY`.
+- **Sessions = server-side opaque tokens in an HttpOnly SameSite=Strict cookie + per-session CSRF header + Origin check**; login exchanges an API key. No credentials in localStorage.
+- **Live is the default API mode; preview is explicit opt-in.** Unsupported surfaces throw `ApiError('unsupported')` rather than fake data.
+- **Frontend is embedded** in the Go binary via `make web` into `internal/api/v1/static` (gitignored except PLACEHOLDER).
+
 ## Phase 24C frontend decisions
 - **Design language "SPINE"**: dark-first, phosphor accent, semantic hue per spine link; hand-written CSS tokens, no Tailwind (instructions allowed CSS or Tailwind; fewer deps, no install needed).
 - **Single API seam** `CyberosApi`; no grant/trust/verify/execute methods exist by design.

@@ -33,15 +33,16 @@ func (c ControlPlaneIssuer) IssueForStep(ctx context.Context, a *Assessment, ste
 		CapabilityID:  step.CapabilityID,
 		CorrelationID: corr,
 	}
-	g, d, err := c.Issuer.IssueAfterEvaluate(ctx, c.Control, req)
+	var constraints contracts.ExecutionGrantConstraints
+	if step.ExecutorHint != "" {
+		constraints.AllowedExecutorHints = []string{step.ExecutorHint}
+	}
+	g, d, err := c.Issuer.IssueAfterEvaluateWith(ctx, c.Control, req, constraints)
 	if err != nil {
 		return contracts.ExecutionGrant{}, err
 	}
 	if !d.Allowed() {
 		return contracts.ExecutionGrant{}, fmt.Errorf("%w: %s", contracts.ErrForbidden, d.Reason)
-	}
-	if step.ExecutorHint != "" {
-		g.Constraints.AllowedExecutorHints = []string{step.ExecutorHint}
 	}
 	return g.ExecutionGrant, nil
 }

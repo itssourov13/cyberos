@@ -25,6 +25,17 @@ type Broker struct {
 	usedNonces map[string]time.Time
 	// Now overrides clock for tests.
 	Now func() time.Time
+	// Signer verifies grant provenance. When set, grants not signed by the
+	// issuer (forged, altered or unissued) are rejected before any other state
+	// is touched. Production wiring always sets it.
+	Signer *GrantSigner
+}
+
+// RevokeGrant marks an issued grant unusable for future Execute calls.
+func (b *Broker) RevokeGrant(id contracts.ExecutionGrantID) {
+	if b != nil {
+		b.Signer.Revoke(id)
+	}
 }
 
 // New constructs a Tool Broker with the given executor (must be non-nil).
@@ -67,6 +78,13 @@ func (b *Broker) Execute(req contracts.ExecutionRequest) (contracts.ExecutionRes
 	// Structural + temporal validation (Broker authority — NOT host)
 	if err := g.Validate(); err != nil {
 		return rejected("invalid grant: " + err.Error()), fmt.Errorf("%w: %v", contracts.ErrGrantInvalid, err)
+	}
+	// Provenance: the grant must have been issued (signed) by this server.
+	// Checked before nonce consumption so forged grants cannot burn nonces.
+	if b.Signer != nil {
+		if err := b.Signer.Verify(req.Grant); err != nil {
+			return rejected("grant provenance check failed: " + err.Error()), err
+		}
 	}
 	if !g.IsUsable(now) {
 		if g.Status != contracts.ExecutionGrantStatusIssued {

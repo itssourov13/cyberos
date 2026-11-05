@@ -64,3 +64,9 @@ state/local/
 
 # Private local audit notes (never commit)
 .local-audit/
+
+# Frontend build copied into the Go embed directory by `make web`
+/internal/api/v1/static/*
+!/internal/api/v1/static/PLACEHOLDER
+.env
+.env.local

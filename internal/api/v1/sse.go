@@ -61,6 +61,9 @@ func (s *Server) handleEventStream(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
+			if !s.eventVisible(r, env) {
+				continue
+			}
 			writeSSE(w, flusher, env)
 		}
 	}
@@ -73,4 +76,19 @@ func writeSSE(w http.ResponseWriter, flusher http.Flusher, env contracts.EventEn
 	}
 	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", env.Type, b)
 	flusher.Flush()
+}
+
+// eventVisible limits the stream for tenant-scoped callers to events of
+// projects their tenant owns. Events without a project are system-wide and
+// visible only to operator (tenant-less) identities.
+func (s *Server) eventVisible(r *http.Request, env contracts.EventEnvelope) bool {
+	t := callerTenant(r)
+	if t == "" {
+		return true
+	}
+	if env.ProjectID == "" || s.SDK == nil || s.SDK.Catalog == nil {
+		return false
+	}
+	owner, known := s.SDK.Catalog.ProjectTenant(env.ProjectID)
+	return known && owner == t
 }

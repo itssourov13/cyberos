@@ -87,6 +87,9 @@ func runServe(cfg *config.Config) {
 			fmt.Fprintf(os.Stderr, "CYBEROS auth: existing active API key(s) present (not re-issuing)\n")
 		}
 		srv.Auth = auth.NewMiddleware(authenticator)
+		srv.Auth.Sessions = auth.NewSessionStore(cfg.SessionTTL, cfg.SessionIdle)
+		srv.Auth.AllowedOrigins = cfg.AllowedOrigins
+		srv.Auth.CookieSecure = cfg.CookieSecure || cfg.Env == "production"
 		fmt.Fprintf(os.Stderr, "CYBEROS API auth: REQUIRED\n")
 	} else {
 		fmt.Fprintf(os.Stderr, "CYBEROS API auth: optional (set CYBEROS_AUTH_REQUIRED=true or CYBEROS_ENV=production)\n")

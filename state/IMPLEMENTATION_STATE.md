@@ -17,7 +17,18 @@
 - v0.12.0 AI Brain
 
 
-## Phase 24C — Frontend clean-slate rebuild — IMPLEMENTED, NOT VERIFIED
+## Phase 24D — Integration — PARTIAL
+- [x] Sessions + login/me/logout, cookie flags, CSRF + Origin, login rate limit (`internal/auth/session.go`, `handlers_auth.go`)
+- [x] Grant provenance: HMAC-signed grants, revocation, replay/expiry/forgery tests (`internal/broker/provenance*.go`)
+- [x] Isolation fixes + tests (`tests/security/isolation_24d_test.go`, `session_test.go`)
+- [x] Embedded SPA serving + tests (`internal/api/v1/ui.go`, `ui_test.go`), `make web`/`release`
+- [x] Frontend live adapter, session provider, route guard, real sign-in (typecheck/lint/build pass)
+- [ ] Workers list, packs/trust, decisions/grants/evidence/provenance/audit read endpoints and UI wiring
+- [ ] Report download, assessment creation, autonomy/case controls wiring
+- [ ] Durable sessions; frontend unit tests; browser E2E
+Go: build/vet/test clean. See `docs/PHASE24D.md`.
+
+## Phase 24C — Frontend clean-slate rebuild — ACCEPTED by owner
 **Updated:** 2026-11-05
 - [x] Old UI retired in 3 locations; Go embed placeholder in place
 - [x] Design system, component library, API seam, preview adapter

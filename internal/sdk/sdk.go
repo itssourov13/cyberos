@@ -112,11 +112,35 @@ func NewInMemory() *Client {
 		lifecycle.WithFindings(c.Findings),
 		lifecycle.WithProvenance(c.Provenance),
 	)
+	if err := c.EnableGrantProvenance(nil); err != nil {
+		panic(err) // crypto/rand failure is unrecoverable
+	}
 	c.WireWorkflow()
 	c.AIApply = apply.NewApplicator(nil)
 	c.WireAutonomy(nil)
 	// Phase 4A: no demo seed — catalog starts empty until RefreshFromRepos or explicit upserts.
 	return c
+}
+
+// EnableGrantProvenance makes the Issuer sign every grant and the Broker reject
+// any grant not signed by it. A nil/empty key selects an ephemeral per-process
+// key (fail-closed across restarts).
+func (c *Client) EnableGrantProvenance(key []byte) error {
+	var (
+		signer *broker.GrantSigner
+		err    error
+	)
+	if len(key) == 0 {
+		signer, err = broker.NewEphemeralGrantSigner()
+	} else {
+		signer, err = broker.NewGrantSigner(key)
+	}
+	if err != nil {
+		return err
+	}
+	c.Issuer.Signer = signer
+	c.Broker.Signer = signer
+	return nil
 }
 
 // mockToolExecutor adapts mock.Executor to ToolExecutor for registry default.

@@ -108,3 +108,22 @@ Never claim PG durability verified when tests were skipped.
 
 
 **Phase 15 frozen at `v0.15.0`.** Apply migrations through `015_autonomy_outbox.sql`. Process tools fail-closed.
+
+
+## Phase 24D — Production frontend and sessions
+
+Build (reproducible): `make release` = `make web` (npm ci + vite build, copies `frontend/dist` into `internal/api/v1/static`) then `go build`. Without `make web` the binary serves a 503 notice for UI routes (API unaffected).
+
+Run: `CYBEROS_ENV=production CYBEROS_COOKIE_SECURE=true CYBEROS_GRANT_SIGNING_KEY=<hex ≥32 bytes> ... ./cyberos serve` behind TLS. Production forces mandatory auth.
+
+| Variable | Purpose |
+|---|---|
+| `CYBEROS_AUTH_REQUIRED` | mandatory API auth (forced on in production / non-loopback) |
+| `CYBEROS_BOOTSTRAP_API_KEY` | `cos_…` bootstrap key (dev/local) |
+| `CYBEROS_GRANT_SIGNING_KEY` | hex secret ≥32 bytes signing execution grants (required in production) |
+| `CYBEROS_SESSION_TTL` / `CYBEROS_SESSION_IDLE` | absolute / idle session lifetime (12h / 30m) |
+| `CYBEROS_COOKIE_SECURE` | `Secure` flag on the session cookie (always on over TLS) |
+| `CYBEROS_ALLOWED_ORIGINS` | extra trusted origins for cookie writes (same-origin always allowed) |
+
+Frontend (build-time, no secrets): `VITE_CYBEROS_API_BASE` (default same-origin), `VITE_CYBEROS_API_MODE` (`live` default; `preview` = fixtures, never use in production). Dev: `cd frontend && npm run dev` proxies `/api` to `127.0.0.1:8080`.
+Sessions are in memory: restart = sign in again.

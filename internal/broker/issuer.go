@@ -17,6 +17,9 @@ import (
 type Issuer struct {
 	// TTL is the default grant lifetime. Zero means 5 minutes.
 	TTL time.Duration
+	// Signer, when set, signs every issued grant so the Broker can prove
+	// provenance. Production wiring always sets it.
+	Signer *GrantSigner
 }
 
 // NewIssuer constructs a grant issuer.
@@ -120,6 +123,13 @@ func (i *Issuer) Issue(_ context.Context, req IssueRequest) (*domaingrant.Grant,
 	if g.CorrelationID == "" {
 		g.CorrelationID = req.Decision.CorrelationID
 	}
+	if i.Signer != nil {
+		sig, err := i.Signer.Sign(g)
+		if err != nil {
+			return nil, fmt.Errorf("sign grant: %w", err)
+		}
+		g.Signature = sig
+	}
 	return domaingrant.NewFromContract(g)
 }
 
@@ -128,6 +138,18 @@ func (i *Issuer) IssueAfterEvaluate(
 	ctx context.Context,
 	cp *controlplane.Service,
 	evalReq controlplane.EvaluateRequest,
+) (*domaingrant.Grant, contracts.Decision, error) {
+	return i.IssueAfterEvaluateWith(ctx, cp, evalReq, contracts.ExecutionGrantConstraints{})
+}
+
+// IssueAfterEvaluateWith is IssueAfterEvaluate with grant constraints fixed at
+// issuance time. Constraints must be supplied here, never patched onto an
+// issued grant: the issuer signature covers them.
+func (i *Issuer) IssueAfterEvaluateWith(
+	ctx context.Context,
+	cp *controlplane.Service,
+	evalReq controlplane.EvaluateRequest,
+	constraints contracts.ExecutionGrantConstraints,
 ) (*domaingrant.Grant, contracts.Decision, error) {
 	d, err := cp.Evaluate(ctx, evalReq)
 	if err != nil {
@@ -145,6 +167,7 @@ func (i *Issuer) IssueAfterEvaluate(
 		CapabilityID:  evalReq.CapabilityID,
 		CorrelationID: evalReq.CorrelationID,
 		Now:           evalReq.Now,
+		Constraints:   constraints,
 	}
 	if evalReq.RequireTrustedPack {
 		if evalReq.EffectivePackTrust != "TRUSTED" || evalReq.PackContentDigest == "" {

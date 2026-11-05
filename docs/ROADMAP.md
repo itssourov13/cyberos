@@ -17,8 +17,8 @@ Status labels: **DONE** · **PARTIAL** · **DEFERRED** · **UNVERIFIED**
 | 23C | Docs + live integration skip harness | **DONE** (committed HEAD family) |
 | 24A | Web UI design specification | **DONE** (design doc) |
 | 24B | Frontend Parts 1–3 + D1–D5 (old MOCK UI) | **SUPERSEDED** — old demo UI retired by 24C |
-| 24C | Clean-slate frontend (React/TS/Vite) on preview data | **IMPLEMENTED; post-audit fixes applied; owner re-verification pending** |
-| 24D | Real `/api/v1` integration, authentication, remaining backend gaps | **DEFERRED** (needs owner acceptance of 24C) |
+| 24C | Clean-slate frontend (React/TS/Vite) on preview data | **ACCEPTED by owner** |
+| 24D | Real `/api/v1` integration, authentication, remaining backend gaps | **PARTIAL** — auth/sessions, grant provenance, isolation, live read adapter, production serving done and verified; see `docs/PHASE24D.md` for remaining gaps |
 | 25+ | Marketplace / JARVIS / further product | **DEFERRED** |
 
 ## Live verification
@@ -34,7 +34,7 @@ PostgreSQL, multi-worker, and mTLS fleet checks **SKIP** unless `DATABASE_URL` /
 ## Phase 24C — Clean-slate frontend (implemented; audit fixes applied; re-verification pending)
 New public site, sign-in screen and 24-route operator console on preview data. See `docs/FRONTEND_REBUILD.md`.
 
-## Phase 24D — Backend integration (NOT started; needs owner acceptance of 24C)
+## Phase 24D — Backend integration (PARTIAL; details in docs/PHASE24D.md)
 - Live `/api/v1` adapter implementing `CyberosApi` (swap one line in `frontend/src/api/index.ts`)
 - Real authentication/session; sign-in form activation
 - Endpoints: assessments, decisions, grants, executions, provenance graph, autonomy status, worker/trust admin actions, report download

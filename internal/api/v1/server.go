@@ -81,13 +81,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/workflow/runs", s.StartWorkflowRun)
 	mux.HandleFunc("POST /api/v1/workflow/runs/{id}/advance", s.AdvanceWorkflowRun)
 	mux.HandleFunc("POST /api/v1/workflow/runs/{id}/cancel", s.CancelWorkflowRun)
+	mux.HandleFunc("/api/v1/auth/login", s.handleLogin)
+	mux.HandleFunc("/api/v1/auth/me", s.handleMe)
+	mux.HandleFunc("/api/v1/auth/logout", s.handleLogout)
 	s.registerWorkerRoutes(mux)
-	// Web UI foundation (static)
-	mux.Handle("/ui/", http.StripPrefix("/ui/", uiFileServer()))
-	mux.HandleFunc("/", s.handleRoot)
+	// Embedded production frontend (SPA). /api/* is never served from here.
+	mux.Handle("/", uiFileServer())
 	var h http.Handler = mux
 	if s.Auth != nil {
-		h = s.Auth.Wrap(mux)
+		h = s.Auth.Wrap(s.projectGuard(mux))
 	}
 	return h
 }
@@ -118,6 +120,9 @@ func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"capabilities": list})
 	case http.MethodPost:
+		if !s.requireOperator(w, r) {
+			return
+		}
 		var body struct {
 			ID   string `json:"id"`
 			Name string `json:"name"`
@@ -270,12 +275,4 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
-}
-
-func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-	http.Redirect(w, r, "/ui/", http.StatusFound)
 }

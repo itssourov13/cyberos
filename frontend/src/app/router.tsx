@@ -1,5 +1,6 @@
 import { lazy, Suspense, type ComponentType } from 'react'
 import { createBrowserRouter, Navigate, type RouteObject } from 'react-router-dom'
+import { RequireSession } from './guards/RequireSession'
 import { AppShell } from './layouts/AppShell'
 import { SiteLayout } from './layouts/SiteLayout'
 
@@ -58,7 +59,11 @@ const routes: RouteObject[] = [
   { path: 'login', element: <Navigate to="/sign-in" replace /> },
   {
     path: 'app',
-    element: <AppShell />,
+    element: (
+      <RequireSession>
+        <AppShell />
+      </RequireSession>
+    ),
     children: [
       { index: true, element: <Dashboard /> },
       { path: 'projects', element: <Projects /> },

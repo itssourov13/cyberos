@@ -102,3 +102,44 @@ func (s *Server) requireGrantOwner(w http.ResponseWriter, r *http.Request, grant
 	_, ok := s.bindPrincipal(w, r, grant.Principal.ID)
 	return ok
 }
+
+// projectGuard verifies, for tenant-scoped callers, that the project they
+// declared (query/header) actually belongs to their tenant. Without this a
+// caller could pick any project_id and satisfy enforceProject. Unknown or
+// unassigned projects are denied (fail closed). Tenant-less callers are
+// platform operators / legacy single-tenant and are not restricted here.
+func (s *Server) projectGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if t, ok := auth.TenantFromContext(r.Context()); ok {
+			if p := requestedProject(r); p != "" {
+				owner, known := contracts.TenantID(""), false
+				if s.SDK != nil && s.SDK.Catalog != nil {
+					owner, known = s.SDK.Catalog.ProjectTenant(p)
+				}
+				if !known || owner != t {
+					writeErr(w, http.StatusForbidden, "project not accessible")
+					return
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// requireOperator restricts platform-wide administration to tenant-less
+// identities (the bootstrap/operator key). When auth is disabled (explicit dev
+// mode) it is a no-op.
+func (s *Server) requireOperator(w http.ResponseWriter, r *http.Request) bool {
+	if s.Auth == nil {
+		return true
+	}
+	if _, ok := auth.PrincipalFromContext(r.Context()); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return false
+	}
+	if t, ok := auth.TenantFromContext(r.Context()); ok && t != "" {
+		writeErr(w, http.StatusForbidden, "platform administration requires an operator credential")
+		return false
+	}
+	return true
+}

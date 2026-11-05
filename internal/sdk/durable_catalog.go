@@ -28,7 +28,7 @@ func (c *Catalog) RefreshFromRepos(ctx context.Context, repos *ports.Repositorie
 		}
 		for _, p := range list {
 			c.projects[p.ID] = ProjectView{
-				ID: p.ID, Name: p.Name, Description: p.Description, CreatedAt: p.CreatedAt,
+				ID: p.ID, Name: p.Name, Description: p.Description, CreatedAt: p.CreatedAt, TenantID: p.TenantID,
 			}
 		}
 	}

@@ -138,4 +138,4 @@ flowchart TD
 7. [x] Documentation + handoff
 8. [x] Post-audit fixes (principal binding, listen safety, Vite 8.3.5, TS inference, preview scope validation, sample identifiers, lint)
 8b. [ ] Owner re-verification (typecheck, lint, build, go tests) and acceptance
-9. [ ] Phase 24D integration (separate approval)
+9. [~] Phase 24D integration — partial; see docs/PHASE24D.md (auth, grant provenance, isolation, live adapter, embedded serving done; workers/packs/audit/decision-listing endpoints pending)

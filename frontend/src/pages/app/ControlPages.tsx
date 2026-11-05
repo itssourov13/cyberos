@@ -15,18 +15,22 @@ export function EvaluatePage() {
   const toast = useToast()
   const projects = useAsync(() => api.projects(), [api])
   const scopes = useAsync(() => api.scopes(), [api])
-  const packs = useAsync(() => api.packs(), [api])
+  const caps = useAsync(() => api.capabilities(), [api])
+  const tasks = useAsync(() => api.tasks(), [api])
 
-  const [projectId, setProjectId] = useState('prj-atlas')
-  const [scopeId, setScopeId] = useState('scp-atlas-web')
-  const [capability, setCapability] = useState('recon.tls.scan')
-  const [target, setTarget] = useState('portal.northwind.example')
+  const preview = api.mode === 'preview'
+  const [projectId, setProjectId] = useState(preview ? 'prj-atlas' : '')
+  const [scopeId, setScopeId] = useState(preview ? 'scp-atlas-web' : '')
+  const [capability, setCapability] = useState(preview ? 'recon.tls.scan' : '')
+  const [target, setTarget] = useState(preview ? 'portal.northwind.example' : '')
+  const [taskId, setTaskId] = useState('')
   const [busy, setBusy] = useState(false)
   const [trace, setTrace] = useState<SpineTrace>()
   const [revealed, setRevealed] = useState(0)
 
   const projectScopes = (scopes.data ?? []).filter((s) => s.projectId === projectId)
-  const capabilities = [...new Set((packs.data ?? []).flatMap((p) => p.capabilities))].sort()
+  const capabilities = caps.data ?? []
+  const scopeTasks = (tasks.data ?? []).filter((t) => t.scopeId === scopeId)
 
   useEffect(() => {
     if (!trace || revealed >= trace.stages.length) return
@@ -39,7 +43,7 @@ export function EvaluatePage() {
     setTrace(undefined)
     setRevealed(0)
     try {
-      const t = await api.submitSpineRequest({ principal: 'operator:preview', projectId, scopeId, capability, target })
+      const t = await api.submitSpineRequest({ principal: preview ? 'operator:preview' : '', projectId, scopeId, capability, target, taskId: taskId || undefined })
       setTrace(t)
     } catch (e) {
       toast.push(e instanceof Error ? e.message : 'Request failed', 'danger')
@@ -70,13 +74,14 @@ export function EvaluatePage() {
                 <div className="grid grid-2">
                   <div className="field">
                     <label htmlFor="ev-project">Project</label>
-                    <select id="ev-project" className="select" value={projectId} onChange={(e) => { setProjectId(e.target.value); setScopeId(scopes.data?.find((s) => s.projectId === e.target.value)?.id ?? '') }}>
+                    <select id="ev-project" className="select" value={projectId} onChange={(e) => { setProjectId(e.target.value); setScopeId(scopes.data?.find((s) => s.projectId === e.target.value)?.id ?? ''); setTaskId('') }}>
+                      <option value="">Select a project</option>
                       {ps.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                   </div>
                   <div className="field">
                     <label htmlFor="ev-scope">Scope</label>
-                    <select id="ev-scope" className="select" value={scopeId} onChange={(e) => setScopeId(e.target.value)}>
+                    <select id="ev-scope" className="select" value={scopeId} onChange={(e) => { setScopeId(e.target.value); setTaskId('') }}>
                       {projectScopes.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.status})</option>)}
                       {projectScopes.length === 0 && <option value="">No scopes</option>}
                     </select>
@@ -84,10 +89,21 @@ export function EvaluatePage() {
                   <div className="field">
                     <label htmlFor="ev-cap">Capability</label>
                     <select id="ev-cap" className="select" value={capability} onChange={(e) => setCapability(e.target.value)}>
+                      <option value="">Select a capability</option>
                       {capabilities.map((c) => <option key={c}>{c}</option>)}
                     </select>
-                    <span className="hint">Try auth.spray (untrusted pack) or an expired scope to see a denial.</span>
+                    {preview && <span className="hint">Try auth.spray (untrusted pack) or an expired scope to see a denial.</span>}
                   </div>
+                  {!preview && (
+                    <div className="field">
+                      <label htmlFor="ev-task">Task</label>
+                      <select id="ev-task" className="select" value={taskId} onChange={(e) => setTaskId(e.target.value)}>
+                        <option value="">Select a task</option>
+                        {scopeTasks.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
+                      </select>
+                      <span className="hint">The control plane evaluates and, if allowed, executes this task.</span>
+                    </div>
+                  )}
                   <div className="field">
                     <label htmlFor="ev-target">Target</label>
                     <input id="ev-target" className="input" value={target} onChange={(e) => setTarget(e.target.value)} spellCheck={false} />
@@ -97,7 +113,7 @@ export function EvaluatePage() {
               )}
             </Async>
             <div>
-              <button type="button" className="btn btn-primary" onClick={submit} disabled={busy || !scopeId || !target.trim()}>
+              <button type="button" className="btn btn-primary" onClick={submit} disabled={busy || !scopeId || !capability || (preview ? !target.trim() : !taskId)}>
                 <Play size={14} /> {busy ? 'Submitting…' : 'Submit to control plane'}
               </button>
             </div>

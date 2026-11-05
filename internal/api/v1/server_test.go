@@ -178,15 +178,3 @@ func TestCatalogAndDashboard(t *testing.T) {
 	}
 }
 
-func TestUIIndexServed(t *testing.T) {
-	srv := NewServer(sdk.NewInMemory())
-	h := srv.Handler()
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/ui/", nil))
-	if rr.Code != http.StatusOK && rr.Code != http.StatusMovedPermanently {
-		// FileServer may redirect
-		if rr.Code != 301 && rr.Code != 302 && rr.Code != 200 {
-			t.Fatalf("ui: %d", rr.Code)
-		}
-	}
-}
