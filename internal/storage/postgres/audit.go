@@ -60,6 +60,25 @@ func (b *AuditBackend) ListByCorrelation(id contracts.CorrelationID) ([]audit.En
 	return scanAuditRows(rows)
 }
 
+// List returns a bounded newest-first page. An empty project ID is reserved
+// for platform operators and includes system-wide entries.
+func (b *AuditBackend) List(projectID contracts.ProjectID, limit, offset int) ([]audit.Entry, error) {
+	if limit < 1 || limit > 500 || offset < 0 {
+		return nil, contracts.ErrInvalidArgument
+	}
+	rows, err := b.db.QueryContext(context.Background(), `
+		SELECT id, action, ts, principal_id, principal_type, project_id, scope_id, task_id,
+			decision_id, grant_id, correlation_id, causation_id, outcome, reason, metadata
+		FROM audit_entries
+		WHERE ($1='' OR project_id=$1)
+		ORDER BY seq DESC LIMIT $2 OFFSET $3`, string(projectID), limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAuditRows(rows)
+}
+
 // All returns all audit entries in order.
 func (b *AuditBackend) All() ([]audit.Entry, error) {
 	rows, err := b.db.QueryContext(context.Background(), `

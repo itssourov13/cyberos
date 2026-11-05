@@ -29,9 +29,17 @@ type ExecutionGrantConstraints struct {
 	// MaxUses, if > 0, limits how many times the grant may be consumed.
 	MaxUses int `json:"max_uses,omitempty"`
 
-	// AllowedExecutorHints are optional soft constraints on which executor
-	// implementations may accept the grant (e.g. "mock", "sandbox").
+	// AllowedExecutorHints restrict the grant to these registered executors.
+	// An empty list delegates to an explicitly configured development default;
+	// production issuance must always bind a concrete executor.
 	AllowedExecutorHints []string `json:"allowed_executor_hints,omitempty"`
+
+	// AllowedAssetIDs are authoritative asset references approved by the scope.
+	AllowedAssetIDs []AssetID `json:"allowed_asset_ids,omitempty"`
+
+	// AllowedTargets bind target-bearing executor parameters (target/url) to
+	// canonical asset values or the exact target approved at grant issuance.
+	AllowedTargets []string `json:"allowed_targets,omitempty"`
 
 	// Metadata holds opaque, non-authoritative data.
 	Metadata map[string]string `json:"metadata,omitempty"`
@@ -73,7 +81,6 @@ type ExecutionGrant struct {
 	// signature does not verify (Phase 24D grant provenance).
 	Signature string `json:"signature,omitempty"`
 }
-
 
 // Validate checks structural integrity of the grant.
 // It does NOT perform cryptographic verification or database lookups.

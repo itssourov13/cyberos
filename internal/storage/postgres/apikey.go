@@ -45,18 +45,44 @@ func (s *APIKeyStore) Create(ctx context.Context, key auth.APIKey) error {
 
 func (s *APIKeyStore) CountActive(ctx context.Context) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM api_keys WHERE active=TRUE`).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM api_keys WHERE active=TRUE AND (expires_at IS NULL OR expires_at > NOW())`).Scan(&n)
+	return n, err
+}
+
+func (s *APIKeyStore) CountActiveOperators(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM api_keys WHERE active=TRUE AND COALESCE(tenant_id,'')='' AND role='operator' AND (expires_at IS NULL OR expires_at > NOW())`).Scan(&n)
 	return n, err
 }
 
 func (s *APIKeyStore) Revoke(ctx context.Context, id string) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE api_keys SET active=FALSE WHERE id=$1`, id)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin API key revocation: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx, `UPDATE api_keys SET active=FALSE WHERE id=$1 AND active=TRUE`, id)
+	if err != nil {
+		return fmt.Errorf("revoke API key: %w", err)
+	}
+	n, err := res.RowsAffected()
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
 	if n == 0 {
-		return contracts.ErrNotFound
+		var exists bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM api_keys WHERE id=$1)`, id).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return contracts.ErrNotFound
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM auth_sessions WHERE api_key_id=$1`, id); err != nil {
+		return fmt.Errorf("invalidate API key sessions: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit API key revocation: %w", err)
 	}
 	return nil
 }
@@ -75,10 +101,27 @@ func scanAPIKey(s scannable) (auth.APIKey, error) {
 		}
 		return auth.APIKey{}, err
 	}
+	parsedRole := auth.ParseRole(role)
+	if role == "" {
+		// Compatibility for pre-role rows only; migration 024 backfills all rows.
+		if tenantID == "" {
+			parsedRole = auth.RoleOperator
+		} else {
+			parsedRole = auth.RoleAnalyst
+		}
+	} else if parsedRole == "" {
+		return auth.APIKey{}, fmt.Errorf("stored API key %q has invalid role", id)
+	}
+	if tenantID == "" && parsedRole != auth.RoleOperator {
+		return auth.APIKey{}, fmt.Errorf("tenant-less API key %q must have operator role", id)
+	}
+	if tenantID != "" && parsedRole == auth.RoleOperator {
+		return auth.APIKey{}, fmt.Errorf("tenant-scoped API key %q cannot have operator role", id)
+	}
 	k := auth.APIKey{
 		ID: id, Prefix: prefix, Hash: hash,
 		PrincipalID: contracts.PrincipalID(principalID), TenantID: contracts.TenantID(tenantID),
-		Role: auth.ParseRole(role), Active: active, CreatedAt: created.UTC(),
+		Role: parsedRole, Active: active, CreatedAt: created.UTC(),
 	}
 	if exp.Valid {
 		t := exp.Time.UTC()

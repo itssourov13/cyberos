@@ -4,6 +4,7 @@ package memory
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 
@@ -294,15 +295,69 @@ func (s *AssessmentStore) GetByID(_ context.Context, id string) (ports.Assessmen
 	}
 	return r, nil
 }
+
+func (s *AssessmentStore) ClaimRun(_ context.Context, id string) (ports.AssessmentRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, ok := s.items[id]
+	if !ok {
+		return ports.AssessmentRecord{}, contracts.ErrNotFound
+	}
+	if rec.State != string(contracts.AssessmentStatePlanned) {
+		return ports.AssessmentRecord{}, contracts.ErrConflict
+	}
+	rec.State = string(contracts.AssessmentStateRunning)
+	rec.UpdatedAt = time.Now().UTC()
+	s.items[id] = rec
+	return rec, nil
+}
 func (s *AssessmentStore) List(_ context.Context, limit, offset int) ([]ports.AssessmentRecord, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var out []ports.AssessmentRecord
 	for _, r := range s.items {
 		out = append(out, r)
-		if limit > 0 && len(out) >= limit {
-			break
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].ID < out[j].ID
 		}
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+	if offset >= len(out) {
+		return []ports.AssessmentRecord{}, nil
+	}
+	out = out[offset:]
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (s *AssessmentStore) ListByProject(_ context.Context, projectID contracts.ProjectID, limit, offset int) ([]ports.AssessmentRecord, error) {
+	if projectID == "" || offset < 0 {
+		return nil, contracts.ErrInvalidArgument
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []ports.AssessmentRecord
+	for _, rec := range s.items {
+		if rec.ProjectID == string(projectID) {
+			out = append(out, rec)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+	if offset >= len(out) {
+		return []ports.AssessmentRecord{}, nil
+	}
+	out = out[offset:]
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
 }

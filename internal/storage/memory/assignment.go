@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 
@@ -112,3 +113,19 @@ func (r *AssignmentRepo) ClaimAtomic(_ context.Context, projectID contracts.Proj
 }
 
 var _ ports.AssignmentRepository = (*AssignmentRepo)(nil)
+
+func (r *AssignmentRepo) ListByProject(_ context.Context, projectID contracts.ProjectID, limit int) ([]ports.AssignmentRecord, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]ports.AssignmentRecord, 0)
+	for _, a := range r.byID {
+		if a.ProjectID == projectID {
+			out = append(out, a)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}

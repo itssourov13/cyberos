@@ -7,14 +7,7 @@ import (
 	"time"
 
 	"cyberos/internal/contracts"
-	"cyberos/internal/events"
 )
-
-// SSEHub is optional live event fan-out for the API server.
-func (s *Server) WithEventHub(h *events.Hub) *Server {
-	s.hub = h
-	return s
-}
 
 // handleEventStream is a read-only Server-Sent Events endpoint.
 // It never authorizes work or triggers execution.
@@ -32,6 +25,11 @@ func (s *Server) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
+	// Subscribe before committing headers so an event published during the
+	// handshake cannot fall into the gap between response flush and subscribe.
+	ch := s.hub.Subscribe(32)
+	defer s.hub.Unsubscribe(ch)
+
 	// The server-wide WriteTimeout must not terminate a long-lived stream.
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -39,9 +37,6 @@ func (s *Server) handleEventStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
-
-	ch := s.hub.Subscribe(32)
-	defer s.hub.Unsubscribe(ch)
 
 	// Initial comment so clients know the stream is alive
 	_, _ = fmt.Fprintf(w, ": connected\n\n")

@@ -28,8 +28,9 @@ func newSessionHarness(t *testing.T) *sessionHarness {
 	}
 	srv := v1.NewServer(sdk.NewInMemory())
 	srv.Auth = auth.NewMiddleware(a)
-	srv.Auth.Sessions = auth.NewSessionStore(time.Hour, time.Hour)
-	return &sessionHarness{h: srv.Handler(), plain: plain, store: srv.Auth.Sessions}
+	store := auth.NewSessionStore(time.Hour, time.Hour)
+	srv.Auth.Sessions = store
+	return &sessionHarness{h: srv.Handler(), plain: plain, store: store}
 }
 
 func (s *sessionHarness) do(r *http.Request) *httptest.ResponseRecorder {

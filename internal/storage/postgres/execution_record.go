@@ -45,6 +45,9 @@ func (r *ExecutionRecordRepo) Upsert(ctx context.Context, rec contracts.Executio
 		rec.ToolID, rec.PackVersion, string(rec.TenantID), metrics,
 	)
 	if err != nil {
+		if isUniqueViolation(err) {
+			return contracts.ErrConflict
+		}
 		return fmt.Errorf("upsert execution_record: %w", err)
 	}
 	return nil

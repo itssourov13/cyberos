@@ -1,64 +1,80 @@
-# Phase 24D — Backend integration (frontend ⇄ Go API)
+# Phase 24D — Production integration and hardening
 
-Branch `feat/cyberos-phase-24d-integration`, based on the accepted 24C commit `e9cf797`. The SPINE UI (design system, routes, layouts, lazy loading) is unchanged except where real data required it.
+**Branch:** \`feat/cyberos-phase-24d-integration\`
+**Code status:** Implemented; local Go and frontend verification passed.
+**Deployment status:** Not deployed or externally verified against a live PostgreSQL service.
 
-Status: **PARTIAL.** Each item below is labelled *verified* (a test or run in this repo exercised it) or *unverified*. Nothing here has been exercised in a browser or against a live PostgreSQL server.
+The existing SPINE visual system, layouts, routes, typography, spacing and component styling have been preserved. Phase 24D changes the application/API/data path, not the visual design.
 
-## Frontend
+## Delivered
 
-- `frontend/src/api/http.ts` — single transport: same-origin `/api/v1`, `credentials: 'include'`, 15 s timeout + caller `AbortSignal`, `X-CSRF-Token` on non-GET, typed `ApiError` for 401/403/404/409/422/429/501/5xx/network/timeout. A 401 on a protected call fires the session-expired handler.
-- `frontend/src/api/live.ts` — `CyberosApi` adapter over real routes only. No fixture fallback. Backend structs without JSON tags arrive PascalCase; mapping lives here. Tenant callers must name a project on most reads, so list calls fan out over the caller's projects.
-- `frontend/src/api/session.ts`, `app/providers/SessionProvider.tsx`, `app/guards/RequireSession.tsx` — sign-in, restore-on-reload (`GET /auth/me`), sign-out, expiry, 401 handling, redirect-after-login limited to `/app…` paths. The route guard is UX only; the backend authorises every request.
-- Sign-in takes a CYBEROS API key, exchanged once for an HttpOnly, SameSite=Strict session cookie. The key and cookie are never readable or stored by JS; only the in-memory CSRF token is held.
-- Mode: **live is the default**. Preview fixtures load only with `VITE_CYBEROS_API_MODE=preview` (banner + "Preview data" chip). A dead backend shows an error, never fixtures.
-- Verified: `npm run typecheck`, `npm run lint` (0 warnings), `npm run build`. Unverified: rendering of every screen against a live backend.
+### Frontend and session boundary
 
-## API endpoints used by the live adapter
+- \`frontend/src/api/http.ts\` is the single live transport: credentialed requests, HttpOnly session cookie, in-memory CSRF token, timeout/abort support, typed API errors, no fixture fallback.
+- Live API mode is the default. Preview fixtures remain an explicit opt-in.
+- Sign-in, session restore, logout, expiry handling and route guards use the backend session endpoints.
+- Cross-origin browser calls are restricted to explicitly allow-listed origins. CORS uses exact scheme/host matching and credentialed responses; wildcard origins are never emitted.
+- React Router SPA fallback is configured for Vercel. The Go binary continues to serve the embedded Vite build.
 
-`GET /health`, `/version`, `/dashboard`, `/projects`, `/scopes`, `/tasks`, `/capabilities`, `/findings`, `/assets`, `/cases`, `/reports`; `POST /grants`, `/execute`; `GET /auth/me`, `POST /auth/login`, `/auth/logout`.
+### Authentication, authorization and tenant isolation
 
-## Authentication and sessions (verified by `tests/security/session_test.go`)
+- Production-like environments (anything except explicit development) require PostgreSQL, authentication, secure cookies, a persistent PostgreSQL session backend, a production signing secret and verified PostgreSQL TLS (\`sslmode=verify-full\`).
+- Browser sessions store only a SHA-256 digest of the opaque token. Every lookup checks the active API-key row, expiry and current role. API-key revocation invalidates its sessions.
+- API-key roles are persisted: \`viewer\`, \`analyst\`, \`admin\`, \`operator\`. Tenant-scoped credentials cannot be platform operators. Unknown or inconsistent role bindings fail closed.
+- Bootstrap is a tenant-less \`bootstrap\` platform operator. Supply \`CYBEROS_BOOTSTRAP_API_KEY\` through a secret manager for first initialization; production never prints or silently generates a bootstrap secret.
+- Assessment create/plan/run permissions are separated (write vs execute). Resource ownership is resolved from server-side records, not trusted client claims.
+- Request body size limits, login/API safety rate limits, readiness checks and graceful HTTP shutdown are wired.
 
-- `internal/auth/session.go`: server-side sessions keyed by SHA-256 of an opaque token, absolute + idle expiry, per-session CSRF token.
-- `internal/api/v1/handlers_auth.go`: login is rate-limited, origin-checked, `no-store`. The middleware accepts the session cookie and requires same-origin + CSRF for cookie-authenticated writes.
-- Principal binding: `bindPrincipal` takes identity from the authenticated context; a client-supplied `principal_id` that differs is 403.
-- Sessions are in memory (restart = sign in again).
+### Grants, execution and evidence
 
-## Authorization and isolation (24D-1; verified by `tests/security/isolation_24d_test.go`, `internal/api/v1` tests)
+- Execution grants are HMAC-signed and backed by the durable PostgreSQL grant ledger. Issuance, one-time claim, completion and revocation are persisted.
+- Broker completion errors propagate. Expired terminal grants may be cleaned up; uncertain \`CLAIMED\` records are retained for reconciliation and are never automatically replayed.
+- \`POST /api/v1/grants/{id}/revoke\` exposes durable revocation. It requires an operator, or the tenant grant owner/project admin. A CLAIMED grant cannot be revoked.
+- \`POST /api/v1/execute\` now runs through the execution lifecycle controller. It persists an execution record, evidence and audit/provenance links. Repeating the same grant returns the evidence-backed prior result instead of executing the target again.
+- Production registers real tool adapters, not mock/stub executors. There is no implicit default executor. Production grant issuance requires an explicitly registered executor hint.
+- Nmap and HTTP probing are target-bound. Their grants bind a canonical project asset and exact target string; Broker rejects a changed target before execution.
+- Process execution is disabled by default. Enable only with an explicit binary allow-list; shell execution remains prohibited. Stdout/stderr are bounded while the child process is running.
 
-- Ownership is resolved from **server-side records**, never from client headers: the caller's tenant comes from the authenticated identity, a project's tenant from the catalog, and an assessment/case/finding/asset/risk's project from the stored resource. A project id in a query/header/body is only a claim that is checked (`authorizeProject` in `internal/api/v1/isolation.go`).
-- Tenant callers fail closed on unknown/unassigned projects. Foreign **by-id reads return 404**, identical to a missing id, so ids cannot be probed (`enforceObject`). Explicit cross-project declarations on writes remain 403.
-- Scope and task references on evaluate/grants/assessments/workflows/autonomy are validated to belong to the named project (400 otherwise).
-- Roles (`internal/auth/roles.go`): `viewer`, `analyst`, `admin`, `operator`; permission checks via `requirePermission` on evaluate (write), grants/execute (execute), case transitions/acceptance, worker admin, autonomy control/approve, trust admin, audit read. A tenant-less credential is the platform operator; tenant credentials are never operators. Capability registration and trust administration are operator-only.
-- Domain errors map to statuses in one place (`internal/api/v1/errors.go`); 5xx messages are generic so driver details never reach clients.
-- Cases: attributable, durable status history (`case_status_history`, migration 022, `GET /cases/{id}/history`); `Insert` never overwrites another tenant's case; `Transition` is atomic and conflict-aware.
-- SSE streams filter events by the caller's tenant/project.
-- **Known gap:** API-key roles are not persisted or issuable. `APIKeyAuthenticator.Issue` takes no role and the PostgreSQL key store has no role column, so every tenant key behaves as `analyst`; `viewer`/`admin` exist in code only (the in-memory store can carry a role in tests). Admin-gated actions (worker admin, autonomy approval, case acceptance) are therefore reachable only by the operator credential until a role column + issuance path is added.
+### Durable data and runtime composition
 
-## Grant provenance (verified by `internal/broker/provenance_test.go`, `ledger_test.go`)
+- PostgreSQL-backed sessions, audit feed, project/tenant ownership, assets, findings, evidence, provenance, risk evaluations, cases, reports, workers, assignments, assessments, workflow runs, execution records and grant lifecycle are wired into the production composition.
+- Project catalog refresh is paginated and atomically replaces the snapshot only after all repository reads succeed.
+- Assessment state and per-step results persist. A PostgreSQL compare-and-set claim prevents multiple replicas from starting the same PLANNED assessment. A persisted RUNNING assessment after a crash is marked uncertain and blocked from automatic replay.
+- Trust administration is exposed through operator-only routes for project pack trust/revocation and signer registration/inspection/disable/revoke. Mutations are audited.
+- Worker heartbeats bypass human API-key middleware only on the heartbeat route, require a verified client certificate, and bind the SHA-256 certificate fingerprint to an active registered worker. The controller can use TLS 1.3 with a dedicated worker CA.
+- \`/api/v1/health\` is liveness; \`/api/v1/ready\` checks PostgreSQL availability.
 
-Two layers, both required:
+### Operational/deployment packaging
 
-1. **Signature** (`internal/broker/provenance.go`): `GrantSigner` HMAC-signs every authoritative grant field at issuance. The Broker rejects unsigned, tampered and foreign-key grants before touching any state. Mutable `Status` is excluded. `CYBEROS_GRANT_SIGNING_KEY` (≥32 bytes, hex) is required in production; development uses an ephemeral key.
-2. **Ledger** (`internal/broker/ledger.go`, PostgreSQL `internal/storage/postgres/grant_ledger.go`, migration 023): the Issuer records every grant (issuance fails closed if recording fails). The Broker claims it with one atomic conditional UPDATE, so unissued, replayed, revoked and expired grants are rejected across processes; revocation is visible to every instance. Execution outcome is recorded.
+- \`Dockerfile\`: multi-stage Vite + Go build, Go 1.27.3 build image, Alpine 3.24.4 runtime, current CA bundle, non-root UID 10001, embedded frontend and migration SQL files.
+- \`.dockerignore\` prevents secrets, local audit files, dependencies and build output entering the context.
+- \`frontend/vercel.json\` provides a React Router SPA fallback.
+- \`docs/PRODUCTION_DEPLOYMENT.md\` documents Vercel frontend + long-running Go API + managed PostgreSQL topology, secrets, bootstrap, grant revocation, pack trust, worker mTLS and tool allow-list operations.
 
-The execute handler also requires the caller to own the grant. Unit tests cover: legitimate issue→execute→replay-rejected, validly signed but unregistered grant, cross-instance revocation, expiry, 16-way concurrent claim (exactly one winner), issuance failing when the ledger is down. The PostgreSQL ledger itself is covered by an integration test (`-tags integration`) that **has not been run** (no PostgreSQL server was available); it compiles and passes `go vet`.
+## Verification completed in the working tree
 
-## Production serving (verified by `internal/api/v1/ui_test.go` and a manual smoke of the embedded binary)
+| Check | Result |
+|---|---|
+| \`gofmt\` on all changed/new Go files | Pass |
+| \`go test ./... -count=1\` | Pass |
+| \`go vet ./...\` | Pass |
+| \`go build ./cmd/cyberos\` | Pass |
+| \`git diff --check\` | Pass |
+| Frontend Vitest | 17/17 pass |
+| Frontend TypeScript typecheck | Pass |
+| Frontend oxlint | 0 warnings, 0 errors |
+| Frontend Vite production build | Pass |
+| API lifecycle execution regression | Pass: evidence persists and same grant retry does not re-execute |
 
-`internal/api/v1/ui.go` embeds `static/` (`make web` copies `frontend/dist`). `/api/*` never returns `index.html`; missing assets → 404; traversal blocked; hashed assets immutable-cached; CSP hashes the inline bootstrap script; security headers set. Unbuilt binaries answer 503 with build instructions.
+## External verification still required before public traffic
 
-## Remaining work (exact dependencies)
+These are environment checks, not unresolved source-code tasks:
 
-| Area | Gap | Needed |
-|---|---|---|
-| API-key roles | not persisted/issuable (see above) | role column + migration, `Issue(..., role)`, CLI/admin path |
-| Workers list | `GET /projects/{p}/workers` is a stub; `WorkerRegistry` has no `List` | add `List` to registry + durable store, wire handler; then `workers()` mapping (`mapWorker` ready in `live.ts`) and suspend/revoke buttons |
-| Assignments, Packs/trust, Audit feed, Decisions/Grants/Execution/Evidence/Provenance listings | no read endpoints | read endpoints over existing repositories, authorised per project |
-| Dashboard aggregates | grants/denials 24h, throughput, fleet counts not exposed | aggregate endpoints; UI shows "—" until then |
-| Asset exposure / risk score | not on asset model | per-asset evaluation summary route |
-| Report download, assessment creation, case status, autonomy, events UI | backend routes exist; UI controls not wired | follow-up wiring |
-| Durable sessions | in-memory | persist session store |
-| Frontend unit tests | no test runner in `frontend/` | Vitest for `http.ts` / session / mapping |
-| PostgreSQL verification | ledger, case history, migrations 022/023 never run against a live DB | run `go test -tags integration ./internal/storage/postgres/` with `CYBEROS_DATABASE_URL` |
-| Browser E2E | not run | — |
+1. Apply migrations 001–025 against a disposable PostgreSQL instance using the same \`sslmode=verify-full\` and CA configuration intended for production. Run the PostgreSQL integration suite and verify migration rollback/restore.
+2. Build the Docker image in a host with Docker/BuildKit. This development environment has no Docker, Podman, Buildah or Nerdctl binary, so the image itself was not built here.
+3. Configure production secrets, TLS certificates, worker CA, database CA and real allowed tool paths. Process execution is intentionally disabled until explicitly enabled.
+4. Perform operator-owned live smoke checks: bootstrap, sign-in/logout, key issue/revoke, cross-tenant denial, trust mutation/audit, grant issue/revoke/replay, one controlled executor run, worker certificate rejection/acceptance, SSE and readiness failure.
+5. Keep one API replica until SSE pub/sub, login limiting and AI/autonomy safety limiting use shared distributed services. Those mechanisms are currently process-local.
+6. No browser E2E run was performed. The frontend typecheck/lint/build and API tests passed, but pixel/render behaviour against a live API has not been externally exercised.
+
+**Conclusion:** Phase 24D implementation is complete in this branch and the available local code/test/build checks pass. It is not represented as deployed or infrastructure-verified production. Do not call the service live until the external checks above are completed.

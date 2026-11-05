@@ -59,7 +59,7 @@ export function ProvenancePage() {
                     <span className="tl-title mono">{e.action}</span>
                     <span>{e.subject}</span>
                     <span className="tl-meta">{e.actor} · {fmtDateTime(e.at)}</span>
-                    <Digest value={e.digest} />
+                    {e.digest ? <Digest value={e.digest} /> : null}
                   </div>
                 </div>
               ))}

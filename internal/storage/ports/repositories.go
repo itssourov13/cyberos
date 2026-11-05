@@ -105,7 +105,10 @@ type AssessmentRepository interface {
 	Create(ctx context.Context, r AssessmentRecord) error
 	Update(ctx context.Context, r AssessmentRecord) error
 	GetByID(ctx context.Context, id string) (AssessmentRecord, error)
+	// ClaimRun atomically transitions PLANNED → RUNNING across API replicas.
+	ClaimRun(ctx context.Context, id string) (AssessmentRecord, error)
 	List(ctx context.Context, limit, offset int) ([]AssessmentRecord, error)
+	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]AssessmentRecord, error)
 }
 
 // Repositories aggregates all repository ports for convenient wiring.
@@ -130,6 +133,9 @@ type WorkflowRunRecord struct {
 
 // WorkflowRunRepository persists workflow runs and step status (orchestration only).
 type WorkflowRunRepository interface {
+	// Create inserts a new run without overwriting an existing ID. Concurrent
+	// starts with the same caller-supplied ID must produce one winner.
+	Create(ctx context.Context, r WorkflowRunRecord) error
 	Upsert(ctx context.Context, r WorkflowRunRecord) error
 	GetByID(ctx context.Context, id string) (WorkflowRunRecord, error)
 	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]WorkflowRunRecord, error)

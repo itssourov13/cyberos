@@ -70,6 +70,9 @@ func New(opts Options) *Adapter {
 // Descriptor implements tools.Adapter.
 func (a *Adapter) Descriptor() tools.Descriptor { return a.desc }
 
+// RequiresTargetBinding identifies Nmap as a target-directed executor.
+func (a *Adapter) RequiresTargetBinding() bool { return true }
+
 // Health checks binary presence and version probe under process policy.
 func (a *Adapter) Health(ctx context.Context) tools.HealthReport {
 	now := time.Now().UTC()

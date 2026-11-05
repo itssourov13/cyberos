@@ -124,7 +124,12 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		view.TenantID = string(t)
 	}
 	if tok, ok := auth.SessionTokenFromContext(r.Context()); ok && s.Auth.Sessions != nil {
-		if sess, ok := s.Auth.Sessions.Lookup(tok); ok {
+		sess, found, err := s.Auth.Sessions.LookupContext(r.Context(), tok)
+		if err != nil {
+			writeErr(w, http.StatusServiceUnavailable, "session storage unavailable")
+			return
+		}
+		if found {
 			view.CSRFToken = sess.CSRFToken
 			view.ExpiresAt = sess.ExpiresAt
 		}
@@ -139,7 +144,10 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.Auth != nil && s.Auth.Sessions != nil {
 		if tok, ok := auth.SessionTokenFromContext(r.Context()); ok {
-			s.Auth.Sessions.Delete(tok)
+			if err := s.Auth.Sessions.DeleteContext(r.Context(), tok); err != nil {
+				writeErr(w, http.StatusServiceUnavailable, "could not invalidate session")
+				return
+			}
 		}
 	}
 	s.clearSessionCookie(w, r)

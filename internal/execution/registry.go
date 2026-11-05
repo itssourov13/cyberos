@@ -46,6 +46,10 @@ func (r *Registry) Register(ex contracts.ToolExecutor) error {
 func (r *Registry) SetDefault(id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if id == "" {
+		r.defaultID = ""
+		return nil
+	}
 	if _, ok := r.executors[id]; !ok {
 		return contracts.ErrNotFound
 	}

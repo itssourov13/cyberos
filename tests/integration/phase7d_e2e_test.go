@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"sort"
 	"testing"
 
 	appscope "cyberos/internal/application/scope"
@@ -51,11 +52,47 @@ func (m *memFindingRepo7d) GetByFingerprint(_ context.Context, projectID contrac
 	cp := *f
 	return &cp, nil
 }
-func (m *memFindingRepo7d) ListByProject(context.Context, contracts.ProjectID, int, int) ([]*domainfinding.Finding, error) {
-	return nil, nil
+func (m *memFindingRepo7d) ListByProject(_ context.Context, project contracts.ProjectID, limit, offset int) ([]*domainfinding.Finding, error) {
+	var out []*domainfinding.Finding
+	for _, finding := range m.byID {
+		if finding.ProjectID == project {
+			cp := *finding
+			out = append(out, &cp)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].LastSeen.Equal(out[j].LastSeen) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].LastSeen.After(out[j].LastSeen)
+	})
+	return pageFindingRecords7d(out, limit, offset), nil
 }
-func (m *memFindingRepo7d) ListByAssessment(context.Context, string, int, int) ([]*domainfinding.Finding, error) {
-	return nil, nil
+func (m *memFindingRepo7d) ListByAssessment(_ context.Context, assessmentID string, limit, offset int) ([]*domainfinding.Finding, error) {
+	var out []*domainfinding.Finding
+	for _, finding := range m.byID {
+		if finding.AssessmentID == assessmentID {
+			cp := *finding
+			out = append(out, &cp)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].LastSeen.Equal(out[j].LastSeen) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].LastSeen.After(out[j].LastSeen)
+	})
+	return pageFindingRecords7d(out, limit, offset), nil
+}
+func pageFindingRecords7d(rows []*domainfinding.Finding, limit, offset int) []*domainfinding.Finding {
+	if offset >= len(rows) {
+		return []*domainfinding.Finding{}
+	}
+	rows = rows[offset:]
+	if limit > 0 && len(rows) > limit {
+		rows = rows[:limit]
+	}
+	return rows
 }
 
 type memRiskRepo7d struct {
@@ -86,11 +123,45 @@ func (m *memRiskRepo7d) GetByFinding(_ context.Context, id contracts.FindingID) 
 	}
 	return r, nil
 }
-func (m *memRiskRepo7d) ListByProject(context.Context, contracts.ProjectID, int, int) ([]ports.RiskEvaluationRecord, error) {
-	return nil, nil
+func (m *memRiskRepo7d) ListByProject(_ context.Context, project contracts.ProjectID, limit, offset int) ([]ports.RiskEvaluationRecord, error) {
+	var out []ports.RiskEvaluationRecord
+	for _, record := range m.byID {
+		if record.ProjectID == project {
+			out = append(out, record)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CalculatedAt.Equal(out[j].CalculatedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].CalculatedAt.After(out[j].CalculatedAt)
+	})
+	return pageRiskRecords7d(out, limit, offset), nil
 }
-func (m *memRiskRepo7d) ListByAssessment(context.Context, string, int, int) ([]ports.RiskEvaluationRecord, error) {
-	return nil, nil
+func (m *memRiskRepo7d) ListByAssessment(_ context.Context, assessmentID string, limit, offset int) ([]ports.RiskEvaluationRecord, error) {
+	var out []ports.RiskEvaluationRecord
+	for _, record := range m.byID {
+		if record.AssessmentID == assessmentID {
+			out = append(out, record)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CalculatedAt.Equal(out[j].CalculatedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].CalculatedAt.After(out[j].CalculatedAt)
+	})
+	return pageRiskRecords7d(out, limit, offset), nil
+}
+func pageRiskRecords7d(rows []ports.RiskEvaluationRecord, limit, offset int) []ports.RiskEvaluationRecord {
+	if offset >= len(rows) {
+		return []ports.RiskEvaluationRecord{}
+	}
+	rows = rows[offset:]
+	if limit > 0 && len(rows) > limit {
+		rows = rows[:limit]
+	}
+	return rows
 }
 
 type memCaseRepo7d struct {
@@ -173,11 +244,43 @@ func (m *memReportRepo7d) GetByID(_ context.Context, id string) (ports.ReportRec
 	}
 	return r, nil
 }
-func (m *memReportRepo7d) List(context.Context, int, int) ([]ports.ReportRecord, error) {
-	return nil, nil
+func (m *memReportRepo7d) List(_ context.Context, limit, offset int) ([]ports.ReportRecord, error) {
+	var out []ports.ReportRecord
+	for _, record := range m.m {
+		out = append(out, record)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].GeneratedAt.Equal(out[j].GeneratedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].GeneratedAt.After(out[j].GeneratedAt)
+	})
+	return pageReportRecords7d(out, limit, offset), nil
 }
-func (m *memReportRepo7d) ListByProject(context.Context, contracts.ProjectID, int, int) ([]ports.ReportRecord, error) {
-	return nil, nil
+func (m *memReportRepo7d) ListByProject(_ context.Context, project contracts.ProjectID, limit, offset int) ([]ports.ReportRecord, error) {
+	var out []ports.ReportRecord
+	for _, record := range m.m {
+		if record.ProjectID == project {
+			out = append(out, record)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].GeneratedAt.Equal(out[j].GeneratedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].GeneratedAt.After(out[j].GeneratedAt)
+	})
+	return pageReportRecords7d(out, limit, offset), nil
+}
+func pageReportRecords7d(rows []ports.ReportRecord, limit, offset int) []ports.ReportRecord {
+	if offset >= len(rows) {
+		return []ports.ReportRecord{}
+	}
+	rows = rows[offset:]
+	if limit > 0 && len(rows) > limit {
+		rows = rows[:limit]
+	}
+	return rows
 }
 
 // Phase 7D: Assessment → CP → Grant → Broker → Phase6Sink → durable stores → Report

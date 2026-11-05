@@ -4,8 +4,11 @@
 package v1
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"cyberos/internal/auth"
@@ -13,28 +16,51 @@ import (
 	"cyberos/internal/controlplane"
 	"cyberos/internal/events"
 	"cyberos/internal/execution"
+	"cyberos/internal/execution/lifecycle"
 	"cyberos/internal/sdk"
+	"cyberos/internal/tools"
 	"cyberos/pkg/version"
 )
 
 // Server is the API v1 HTTP handler root.
 type Server struct {
-	SDK     *sdk.Client
-	hub     *events.Hub
-	Auth    *auth.Middleware // optional; when set, protects API routes
-	Limiter *SafetyLimiter          // Phase 16D process-local AI/autonomy rate limits
-	Workers *execution.WorkerRegistry // Phase 17C identity only
+	SDK            *sdk.Client
+	hub            *events.Hub
+	Auth           *auth.Middleware // optional; when set, protects API routes
+	Limiter        *SafetyLimiter   // Phase 16D process-local AI/autonomy rate limits
+	Workers        *execution.WorkerRegistry
+	Assignments    *execution.AssignmentService
+	TrustAdmin     *tools.TrustAdmin
+	ReadinessCheck func(context.Context) error
 }
 
 // NewServer constructs an API server.
 func NewServer(client *sdk.Client) *Server {
-	return &Server{SDK: client}
+	return &Server{
+		SDK: client,
+		// A nil limiter used to silently disable protection. Always install bounded
+		// defaults; deployments may tune them through config later.
+		Limiter: NewSafetyLimiter(RateLimitConfig{}),
+	}
+}
+
+// WithEventHub installs the live event fan-out used by the SSE endpoint.
+func (s *Server) WithEventHub(h *events.Hub) *Server {
+	s.hub = h
+	return s
+}
+
+// WithReadinessCheck installs a dependency check separate from liveness.
+func (s *Server) WithReadinessCheck(check func(context.Context) error) *Server {
+	s.ReadinessCheck = check
+	return s
 }
 
 // Handler returns the root http.Handler for /api/v1/.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/health", s.handleHealth)
+	mux.HandleFunc("/api/v1/ready", s.handleReady)
 	mux.HandleFunc("/api/v1/version", s.handleVersion)
 	mux.HandleFunc("/api/v1/capabilities", s.handleCapabilities)
 	mux.HandleFunc("/api/v1/evaluate", s.handleEvaluate)
@@ -66,6 +92,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/autonomy/runs/{id}/advance", s.handleAutonomyAdvance)
 	mux.HandleFunc("/api/v1/autonomy/runs/{id}/approve", s.handleAutonomyApprove)
 	mux.HandleFunc("/api/v1/autonomy/runs/{id}/reject", s.handleAutonomyReject)
+	mux.HandleFunc("/api/v1/audit", s.handleAuditList)
 	mux.HandleFunc("/api/v1/ai/analyze", s.handleAIAnalyze)
 	mux.HandleFunc("/api/v1/ai/plan", s.handleAIPlan)
 	mux.HandleFunc("/api/v1/ai/apply", s.handleAIApply)
@@ -85,7 +112,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/auth/login", s.handleLogin)
 	mux.HandleFunc("/api/v1/auth/me", s.handleMe)
 	mux.HandleFunc("/api/v1/auth/logout", s.handleLogout)
+	s.registerAPIKeyRoutes(mux)
+	s.registerTrustRoutes(mux)
+	s.registerGrantRevocationRoutes(mux)
 	s.registerWorkerRoutes(mux)
+	s.registerAssignmentRoutes(mux)
 	// Embedded production frontend (SPA). /api/* is never served from here.
 	mux.Handle("/", uiFileServer())
 	// withProjectOwner installs the authoritative project-owner resolver used by
@@ -94,6 +125,10 @@ func (s *Server) Handler() http.Handler {
 	if s.Auth != nil {
 		h = s.Auth.Wrap(s.withProjectOwner(s.projectGuard(mux)))
 	}
+	// Apply limits before handlers and CORS before auth so legitimate browser
+	// preflight requests are answered without requiring a session cookie.
+	h = s.bodyLimit(h)
+	h = s.cors(h)
 	return h
 }
 
@@ -103,6 +138,22 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.ReadinessCheck != nil {
+		if err := s.ReadinessCheck(r.Context()); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+				"status": "not_ready", "reason": "critical dependency unavailable",
+			})
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
@@ -211,6 +262,9 @@ func (s *Server) handleGrants(w http.ResponseWriter, r *http.Request) {
 		TaskID        string `json:"task_id"`
 		CapabilityID  string `json:"capability_id"`
 		CorrelationID string `json:"correlation_id"`
+		AssetID       string `json:"asset_id"`
+		Target        string `json:"target"`
+		ExecutorHint  string `json:"executor_hint"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
@@ -232,18 +286,56 @@ func (s *Server) handleGrants(w http.ResponseWriter, r *http.Request) {
 	if body.CorrelationID == "" {
 		body.CorrelationID = "api-grant-" + time.Now().UTC().Format("20060102T150405")
 	}
-	g, d, err := s.SDK.IssueGrant(r.Context(), controlplane.EvaluateRequest{
+	projectID := contracts.ProjectID(body.ProjectID)
+	capabilityID := contracts.CapabilityID(body.CapabilityID)
+	target := strings.TrimSpace(body.Target)
+	assetID := contracts.AssetID(body.AssetID)
+	if assetID != "" {
+		if s.SDK == nil || s.SDK.Assets == nil {
+			writeErr(w, http.StatusServiceUnavailable, "asset inventory unavailable")
+			return
+		}
+		asset, assetErr := s.SDK.Assets.Get(assetID)
+		if assetErr != nil || asset.ProjectID != projectID || !canonicalTargetMatch(target, asset.Value) {
+			writeErr(w, http.StatusForbidden, "asset or target is not valid for this project")
+			return
+		}
+		target = asset.Value
+	} else if target != "" && s.SDK != nil && s.SDK.Assets != nil {
+		asset, assetErr := s.SDK.Assets.GetByValue(projectID, target)
+		if assetErr == nil {
+			assetID = asset.ID
+			target = asset.Value
+		} else if !errors.Is(assetErr, contracts.ErrNotFound) {
+			writeErr(w, statusForErr(assetErr), publicErr(assetErr))
+			return
+		}
+	}
+	executorHint, hintErr := s.resolveExecutorHint(capabilityID, body.ExecutorHint)
+	if hintErr != nil {
+		writeErr(w, statusForErr(hintErr), publicErr(hintErr))
+		return
+	}
+	constraints := contracts.ExecutionGrantConstraints{}
+	if executorHint != "" {
+		constraints.AllowedExecutorHints = []string{executorHint}
+	}
+	if target != "" {
+		constraints.AllowedTargets = []string{target}
+	}
+	g, d, err := s.SDK.IssueGrantWithConstraints(r.Context(), controlplane.EvaluateRequest{
 		PrincipalID:   principal,
-		ProjectID:     contracts.ProjectID(body.ProjectID),
+		ProjectID:     projectID,
 		ScopeID:       contracts.ScopeID(body.ScopeID),
 		TaskID:        contracts.TaskID(body.TaskID),
-		CapabilityID:  contracts.CapabilityID(body.CapabilityID),
+		CapabilityID:  capabilityID,
+		AssetID:       assetID,
 		CorrelationID: contracts.CorrelationID(body.CorrelationID),
-	})
+	}, constraints)
 	if err != nil {
 		// Denied authorization is not a 500
-		writeJSON(w, http.StatusForbidden, map[string]any{
-			"error":    err.Error(),
+		writeJSON(w, statusForErr(err), map[string]any{
+			"error":    publicErr(err),
 			"decision": d,
 		})
 		return
@@ -274,15 +366,34 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	if !s.requirePermission(w, r, auth.PermExecute) {
 		return
 	}
-	res, err := s.SDK.Execute(body.Grant, body.Parameters)
+	if s.SDK == nil || s.SDK.Lifecycle == nil {
+		writeErr(w, http.StatusServiceUnavailable, "durable execution lifecycle is not configured")
+		return
+	}
+	run, err := s.SDK.Lifecycle.Run(lifecycle.RunRequest{
+		Grant: body.Grant, Parameters: body.Parameters,
+		IdempotencyKey: "api-execute:" + string(body.Grant.ID),
+		CorrelationID:  body.Grant.CorrelationID,
+	})
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{
-			"error":  err.Error(),
-			"result": res,
+		writeJSON(w, statusForErr(err), map[string]any{
+			"error":  publicErr(err),
+			"result": run.Result,
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, res)
+	result := run.Result
+	if result.Output == nil {
+		result.Output = map[string]any{}
+	}
+	result.Output["execution_id"] = string(run.Record.ID)
+	if run.Evidence != nil {
+		result.Output["evidence_id"] = string(*run.Evidence)
+	}
+	if run.Finding != nil {
+		result.Output["finding_id"] = string(*run.Finding)
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // validateRequestRefs checks that the scope and task named by a request belong

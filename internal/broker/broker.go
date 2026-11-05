@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -51,7 +52,9 @@ func (b *Broker) RevokeGrantDurable(ctx context.Context, id contracts.ExecutionG
 	if err := b.Ledger.Revoke(ctx, id, actor, reason, b.Now()); err != nil {
 		return err
 	}
-	b.Signer.Revoke(id)
+	if b.Signer != nil {
+		b.Signer.Revoke(id)
+	}
 	return nil
 }
 
@@ -126,8 +129,8 @@ func (b *Broker) ExecuteContext(ctx context.Context, req contracts.ExecutionRequ
 		return rejected(err.Error()), err
 	}
 
-	if len(g.Constraints.AllowedExecutorHints) > 0 {
-		_ = g.Constraints.AllowedExecutorHints
+	if err := validateTargetBinding(req); err != nil {
+		return rejected(err.Error()), err
 	}
 
 	// Phase 19A: pack binding before Host resolution.
@@ -158,24 +161,29 @@ func (b *Broker) ExecuteContext(ctx context.Context, req contracts.ExecutionRequ
 	if err := b.claim(ctx, g, now); err != nil {
 		return rejected(err.Error()), err
 	}
-	finish := func(res contracts.ExecutionResult, runErr error) {
+	finish := func(res contracts.ExecutionResult, runErr error) error {
 		if b.Ledger == nil {
-			return
+			return nil
 		}
 		st := string(res.Status)
-		if runErr != nil && st == "" {
+		if runErr != nil && (st == "" || st == string(contracts.ExecutionStatusSucceeded)) {
 			st = string(contracts.ExecutionStatusFailed)
 		}
 		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		_ = b.Ledger.Complete(cctx, g.ID, st, b.Now())
+		if err := b.Ledger.Complete(cctx, g.ID, st, b.Now()); err != nil {
+			return fmt.Errorf("persist grant completion state: %w", err)
+		}
+		return nil
 	}
 
 	if host != nil {
-		result, err := host.Execute(ctx, req)
-		finish(result, err)
-		if err != nil {
-			return result, err
+		result, runErr := host.Execute(ctx, req)
+		if completeErr := finish(result, runErr); completeErr != nil {
+			return result, errors.Join(runErr, completeErr)
+		}
+		if runErr != nil {
+			return result, runErr
 		}
 		if result.HostID == "" {
 			result.HostID = string(host.ID())
@@ -184,10 +192,12 @@ func (b *Broker) ExecuteContext(ctx context.Context, req contracts.ExecutionRequ
 	}
 
 	// Legacy fallback (should not be used when New() registers Hosts)
-	result, err := b.executor.Execute(req)
-	finish(result, err)
-	if err != nil {
-		return result, err
+	result, runErr := b.executor.Execute(req)
+	if completeErr := finish(result, runErr); completeErr != nil {
+		return result, errors.Join(runErr, completeErr)
+	}
+	if runErr != nil {
+		return result, runErr
 	}
 	return result, nil
 }
@@ -227,6 +237,34 @@ func (b *Broker) ExecuteWithContext(
 		return rejected(err.Error()), err
 	}
 	return b.Execute(req)
+}
+
+func validateTargetBinding(req contracts.ExecutionRequest) error {
+	constraints := req.Grant.Constraints
+	if len(constraints.AllowedAssetIDs) > 0 && len(constraints.AllowedTargets) == 0 {
+		return fmt.Errorf("%w: asset-bound grant has no signed target binding", contracts.ErrGrantInvalid)
+	}
+	if len(constraints.AllowedTargets) == 0 {
+		return nil
+	}
+	target := ""
+	if raw, ok := req.Parameters["target"].(string); ok {
+		target = raw
+	}
+	if target == "" {
+		if raw, ok := req.Parameters["url"].(string); ok {
+			target = raw
+		}
+	}
+	if target == "" {
+		return fmt.Errorf("%w: target-bound grant requires target or url parameter", contracts.ErrGrantInvalid)
+	}
+	for _, allowed := range constraints.AllowedTargets {
+		if target == allowed {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: execution target does not match the signed grant target", contracts.ErrGrantInvalid)
 }
 
 func rejected(msg string) contracts.ExecutionResult {

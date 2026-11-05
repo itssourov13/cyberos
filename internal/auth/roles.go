@@ -39,19 +39,20 @@ const (
 	PermAuditRead       Permission = "audit.read"
 )
 
-// ParseRole normalizes a stored role. Unknown/empty values map to the least
-// privileged *writing* role only for legacy keys; callers that need a strict
-// parse should use ValidRole.
+// ParseRole normalizes a known role. Unknown values fail closed with an
+// empty role; storage adapters must reject them instead of silently escalating.
 func ParseRole(s string) Role {
 	switch Role(strings.ToLower(strings.TrimSpace(s))) {
 	case RoleViewer:
 		return RoleViewer
+	case RoleAnalyst:
+		return RoleAnalyst
 	case RoleAdmin:
 		return RoleAdmin
 	case RoleOperator:
 		return RoleOperator
 	default:
-		return RoleAnalyst
+		return ""
 	}
 }
 
@@ -96,8 +97,9 @@ func RoleFromContext(ctx context.Context) Role {
 	}
 	r, _ := ctx.Value(ctxRoleKey{}).(Role)
 	if r == "" || r == RoleOperator {
-		// A tenant-scoped credential can never be an operator.
-		return RoleAnalyst
+		// A missing or impossible tenant-scoped role fails closed. Legacy rows
+		// are normalized by storage adapters before the identity reaches here.
+		return ""
 	}
 	return r
 }

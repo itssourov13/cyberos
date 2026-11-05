@@ -4,6 +4,7 @@ package audit
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -36,12 +37,18 @@ type Durable interface {
 	All() ([]Entry, error)
 }
 
+// PagedDurable is an optional efficient read interface implemented by durable
+// stores. It avoids materializing the full audit history for browser requests.
+type PagedDurable interface {
+	List(projectID contracts.ProjectID, limit, offset int) ([]Entry, error)
+}
+
 // Service is an append-only audit log that also emits Events.
 type Service struct {
-	mu       sync.RWMutex
-	entries  []Entry
-	events   *events.Store
-	durable  Durable
+	mu      sync.RWMutex
+	entries []Entry
+	events  *events.Store
+	durable Durable
 }
 
 // NewService constructs an audit service.
@@ -238,13 +245,107 @@ func (s *Service) RecordTaskStateChange(
 	})
 }
 
-// All returns a snapshot of audit entries in append order.
+// All returns an in-process snapshot. It is intended for diagnostics and
+// tests; production API reads must use List so durable storage is authoritative.
 func (s *Service) All() []Entry {
+	if s == nil {
+		return nil
+	}
+	if s.durable != nil {
+		out, err := s.durable.All()
+		if err != nil {
+			return nil
+		}
+		return out
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]Entry, len(s.entries))
 	copy(out, s.entries)
 	return out
+}
+
+// List returns newest-first audit entries filtered to one project. An empty
+// project ID is reserved for platform operators and includes system entries.
+// Durable backends should implement PagedDurable to avoid full-history reads.
+func (s *Service) List(projectID contracts.ProjectID, limit, offset int) ([]Entry, error) {
+	if s == nil {
+		return nil, fmt.Errorf("%w: audit service not configured", contracts.ErrInvalidArgument)
+	}
+	if limit < 1 || limit > 500 || offset < 0 {
+		return nil, fmt.Errorf("%w: invalid audit pagination", contracts.ErrInvalidArgument)
+	}
+	if s.durable != nil {
+		if paged, ok := s.durable.(PagedDurable); ok {
+			return paged.List(projectID, limit, offset)
+		}
+		all, err := s.durable.All()
+		if err != nil {
+			return nil, err
+		}
+		return pageEntries(all, projectID, limit, offset), nil
+	}
+	s.mu.RLock()
+	all := make([]Entry, len(s.entries))
+	copy(all, s.entries)
+	s.mu.RUnlock()
+	return pageEntries(all, projectID, limit, offset), nil
+}
+
+func pageEntries(all []Entry, projectID contracts.ProjectID, limit, offset int) []Entry {
+	filtered := make([]Entry, 0, len(all))
+	for _, e := range all {
+		if projectID == "" || e.ProjectID == projectID {
+			filtered = append(filtered, e)
+		}
+	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		return filtered[i].Timestamp.After(filtered[j].Timestamp)
+	})
+	if offset >= len(filtered) {
+		return []Entry{}
+	}
+	filtered = filtered[offset:]
+	if len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+	return filtered
+}
+
+// RecordAdministrative records a platform or credential administration mutation.
+func (s *Service) RecordAdministrative(action string, principal contracts.PrincipalRef, project contracts.ProjectID, reason string) (Entry, error) {
+	if action == "" || principal.ID == "" {
+		return Entry{}, fmt.Errorf("%w: action and actor required", contracts.ErrInvalidArgument)
+	}
+	now := time.Now().UTC()
+	corr := contracts.CorrelationID(fmt.Sprintf("admin-%d", now.UnixNano()))
+	p := principal
+	return s.append(Entry{
+		ID:     contracts.AuditID(fmt.Sprintf("audit-%s-%d", action, now.UnixNano())),
+		Action: action, Timestamp: now, Principal: &p, ProjectID: project,
+		CorrelationID: corr, Outcome: "SUCCEEDED", Reason: reason,
+	}, contracts.EventType("admin.mutation"), map[string]any{"action": action, "reason": reason})
+}
+
+// RecordGrantRevoked writes a durable, attributable grant-revocation record.
+func (s *Service) RecordGrantRevoked(grantID contracts.ExecutionGrantID, grantPrincipal contracts.PrincipalID, project contracts.ProjectID, correlation contracts.CorrelationID, actor contracts.PrincipalRef, reason string) (Entry, error) {
+	if grantID == "" || actor.ID == "" || reason == "" {
+		return Entry{}, fmt.Errorf("%w: grant, actor and reason required", contracts.ErrInvalidArgument)
+	}
+	if correlation == "" {
+		correlation = contracts.CorrelationID("grant-revoke-" + string(grantID))
+	}
+	p := actor
+	return s.append(Entry{
+		ID:     contracts.AuditID("audit-grant-revoked-" + string(grantID)),
+		Action: "grant.revoked", Timestamp: time.Now().UTC(), Principal: &p,
+		ProjectID: project, CorrelationID: correlation, GrantID: grantID,
+		Outcome: "REVOKED", Reason: reason,
+		Metadata: map[string]string{"grant_principal_id": string(grantPrincipal)},
+	}, events.TypeGrantRevoked, map[string]any{
+		"grant_id": string(grantID), "grant_principal_id": string(grantPrincipal),
+		"reason": reason,
+	})
 }
 
 // RecordTrustMutation audits operator trust/signer lifecycle changes (Phase 21).
@@ -300,6 +401,16 @@ func (s *Service) RecordTrustMutation(action string, principal contracts.Princip
 
 // ByCorrelation returns audit entries for a correlation ID.
 func (s *Service) ByCorrelation(id contracts.CorrelationID) []Entry {
+	if s == nil {
+		return nil
+	}
+	if s.durable != nil {
+		out, err := s.durable.ListByCorrelation(id)
+		if err != nil {
+			return nil
+		}
+		return out
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var out []Entry
@@ -332,14 +443,19 @@ func (s *Service) append(e Entry, eventType contracts.EventType, payload map[str
 		return Entry{}, fmt.Errorf("%w: audit id required", contracts.ErrInvalidArgument)
 	}
 
-	s.mu.Lock()
-	s.entries = append(s.entries, e)
-	s.mu.Unlock()
-
+	// Persist first: a failed durable write must not appear as a successful
+	// in-memory audit record. Security-critical callers must propagate this error.
 	if s.durable != nil {
 		if err := s.durable.Append(e); err != nil {
 			return Entry{}, err
 		}
+	}
+	// Durable production services read from PostgreSQL and do not retain an
+	// unbounded duplicate audit log in process memory.
+	if s.durable == nil {
+		s.mu.Lock()
+		s.entries = append(s.entries, e)
+		s.mu.Unlock()
 	}
 
 	if s.events != nil {

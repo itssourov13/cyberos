@@ -120,6 +120,9 @@ func (r *WorkerRegistry) Heartbeat(ctx context.Context, projectID contracts.Proj
 	if err != nil {
 		return Worker{}, err
 	}
+	if w.Status != WorkerActive {
+		return Worker{}, fmt.Errorf("%w: worker is not active", contracts.ErrForbidden)
+	}
 	if err := w.CanAuthenticate(r.now()); err != nil {
 		return Worker{}, err
 	}

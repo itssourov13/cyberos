@@ -151,14 +151,9 @@ func (s *Service) Create(id string, in BuildInput) (*Report, error) {
 
 // Get returns a report by id.
 func (s *Service) Get(id string) (*Report, error) {
-	s.mu.RLock()
-	r, ok := s.items[id]
-	if ok {
-		cp := *r
-		s.mu.RUnlock()
-		return &cp, nil
+	if s == nil {
+		return nil, contracts.ErrInvalidArgument
 	}
-	s.mu.RUnlock()
 	if s.repo != nil {
 		rec, err := s.repo.GetByID(context.Background(), id)
 		if err != nil {
@@ -166,7 +161,9 @@ func (s *Service) Get(id string) (*Report, error) {
 		}
 		var snap Snapshot
 		if len(rec.SnapshotJSON) > 0 {
-			_ = json.Unmarshal(rec.SnapshotJSON, &snap)
+			if err := json.Unmarshal(rec.SnapshotJSON, &snap); err != nil {
+				return nil, fmt.Errorf("decode report %s snapshot: %w", rec.ID, err)
+			}
 		}
 		return &Report{
 			ID: rec.ID, TenantID: rec.TenantID, ProjectID: rec.ProjectID, AssessmentID: rec.AssessmentID,
@@ -174,18 +171,80 @@ func (s *Service) Get(id string) (*Report, error) {
 			Status: rec.Status, Snapshot: &snap,
 		}, nil
 	}
-	return nil, contracts.ErrNotFound
-}
-
-// List returns all reports (test/demo).
-func (s *Service) List() []*Report {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]*Report, 0, len(s.items))
-	for _, r := range s.items {
-		cp := *r
+	r, ok := s.items[id]
+	if !ok {
+		return nil, contracts.ErrNotFound
+	}
+	cp := *r
+	return &cp, nil
+}
+
+// ListByProjectPage reads a project-scoped page from the durable store. An
+// empty project is reserved for platform operators and lists all reports.
+func (s *Service) ListByProjectPage(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]*Report, error) {
+	if s == nil || limit < 1 || limit > 500 || offset < 0 {
+		return nil, contracts.ErrInvalidArgument
+	}
+	var records []ports.ReportRecord
+	var err error
+	if s.repo != nil {
+		if projectID == "" {
+			records, err = s.repo.List(ctx, limit, offset)
+		} else {
+			records, err = s.repo.ListByProject(ctx, projectID, limit, offset)
+		}
+		if err != nil {
+			return nil, err
+		}
+		out := make([]*Report, 0, len(records))
+		for _, rec := range records {
+			var snapshot Snapshot
+			if len(rec.SnapshotJSON) > 0 {
+				if err := json.Unmarshal(rec.SnapshotJSON, &snapshot); err != nil {
+					return nil, fmt.Errorf("decode report %s: %w", rec.ID, err)
+				}
+			}
+			out = append(out, &Report{
+				ID: rec.ID, TenantID: rec.TenantID, ProjectID: rec.ProjectID,
+				AssessmentID: rec.AssessmentID, GeneratedAt: rec.GeneratedAt,
+				GeneratedBy: rec.GeneratedBy, SchemaVersion: rec.SchemaVersion,
+				Status: rec.Status, Snapshot: &snapshot,
+			})
+		}
+		return out, nil
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*Report, 0)
+	for _, report := range s.items {
+		if projectID != "" && report.ProjectID != projectID {
+			continue
+		}
+		cp := *report
 		out = append(out, &cp)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].GeneratedAt.Equal(out[j].GeneratedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].GeneratedAt.After(out[j].GeneratedAt)
+	})
+	if offset >= len(out) {
+		return []*Report{}, nil
+	}
+	out = out[offset:]
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// List returns a compatibility snapshot for tests and local tooling.
+func (s *Service) List() []*Report {
+	out, _ := s.ListByProjectPage(context.Background(), "", 500, 0)
 	return out
 }
 

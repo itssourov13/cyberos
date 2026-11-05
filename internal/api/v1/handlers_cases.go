@@ -2,11 +2,14 @@ package v1
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strconv"
 
 	"cyberos/internal/auth"
 	"cyberos/internal/cases"
 	"cyberos/internal/contracts"
+	"cyberos/internal/reports"
 )
 
 const maxCaseLinks = 500
@@ -56,8 +59,12 @@ func (s *Server) loadCase(w http.ResponseWriter, r *http.Request, id string) (*c
 		return nil, false
 	}
 	c, err := s.SDK.Cases.Get(id)
-	if err != nil || c == nil {
+	if errors.Is(err, contracts.ErrNotFound) || (err == nil && c == nil) {
 		writeErr(w, http.StatusNotFound, "not found")
+		return nil, false
+	}
+	if err != nil {
+		writeErr(w, statusForErr(err), publicErr(err))
 		return nil, false
 	}
 	if !enforceObject(w, r, c.TenantID, c.ProjectID) {
@@ -79,7 +86,12 @@ func (s *Server) handleCases(w http.ResponseWriter, r *http.Request) {
 		}
 		list := []*cases.Case{}
 		if project != "" {
-			list = s.SDK.Cases.ListByProject(project)
+			var err error
+			list, err = s.SDK.Cases.ListByProjectPage(r.Context(), project, 500, 0)
+			if err != nil {
+				writeErr(w, statusForErr(err), publicErr(err))
+				return
+			}
 		}
 		ct := callerTenant(r)
 		out := make([]*cases.Case, 0, len(list))
@@ -258,24 +270,46 @@ func (s *Server) handleReports(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet {
-		list := s.SDK.Reports.List()
-		ct := callerTenant(r)
 		proj := requestedProject(r)
-		if ct != "" && proj == "" {
+		if callerTenant(r) != "" && proj == "" {
 			writeErr(w, http.StatusForbidden, "project_id required for tenant-scoped list")
 			return
 		}
-		out := list[:0]
-		for _, rep := range list {
-			if proj != "" && rep.ProjectID != proj {
-				continue
+		if proj != "" && !enforceProject(w, r, proj) {
+			return
+		}
+		limit := 100
+		if raw := r.URL.Query().Get("limit"); raw != "" {
+			n, err := strconv.Atoi(raw)
+			if err != nil || n < 1 {
+				writeErr(w, http.StatusBadRequest, "invalid limit")
+				return
 			}
-			if ct != "" && rep.TenantID != "" && rep.TenantID != ct {
+			limit = min(n, 500)
+		}
+		offset := 0
+		if raw := r.URL.Query().Get("offset"); raw != "" {
+			n, err := strconv.Atoi(raw)
+			if err != nil || n < 0 {
+				writeErr(w, http.StatusBadRequest, "invalid offset")
+				return
+			}
+			offset = n
+		}
+		list, err := s.SDK.Reports.ListByProjectPage(r.Context(), proj, limit, offset)
+		if err != nil {
+			writeErr(w, statusForErr(err), publicErr(err))
+			return
+		}
+		ct := callerTenant(r)
+		out := make([]*reports.Report, 0, len(list))
+		for _, rep := range list {
+			if ct != "" && rep.TenantID != ct {
 				continue
 			}
 			out = append(out, rep)
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"reports": out})
+		writeJSON(w, http.StatusOK, map[string]any{"reports": out, "limit": limit, "offset": offset})
 		return
 	}
 	writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -292,8 +326,12 @@ func (s *Server) handleReportByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rep, err := s.SDK.Reports.Get(id)
+	if errors.Is(err, contracts.ErrNotFound) || (err == nil && rep == nil) {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
 	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+		writeErr(w, statusForErr(err), publicErr(err))
 		return
 	}
 	if !enforceResource(w, r, rep.TenantID, rep.ProjectID) {
@@ -313,8 +351,12 @@ func (s *Server) handleReportExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rep, err := s.SDK.Reports.Get(id)
+	if errors.Is(err, contracts.ErrNotFound) || (err == nil && rep == nil) {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
 	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+		writeErr(w, statusForErr(err), publicErr(err))
 		return
 	}
 	if !enforceResource(w, r, rep.TenantID, rep.ProjectID) {

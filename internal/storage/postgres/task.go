@@ -232,7 +232,7 @@ func (r *TaskRepo) List(ctx context.Context, limit, offset int) ([]*task.Task, e
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := r.db.QueryContext(ctx, taskSelect+` ORDER BY created_at DESC LIMIT $1 OFFSET $2`, limit, offset)
+	rows, err := r.db.QueryContext(ctx, taskSelect+` ORDER BY created_at DESC, id ASC LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		return nil, err
 	}

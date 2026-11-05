@@ -59,6 +59,8 @@ type KeyStore interface {
 	Revoke(ctx context.Context, id string) error
 	// CountActive returns the number of active (non-revoked) keys.
 	CountActive(ctx context.Context) (int, error)
+	// CountActiveOperators counts active platform operator keys only.
+	CountActiveOperators(ctx context.Context) (int, error)
 }
 
 // MemoryKeyStore is an in-process API key store.
@@ -100,6 +102,18 @@ func (s *MemoryKeyStore) CountActive(_ context.Context) (int, error) {
 	n := 0
 	for _, k := range s.byID {
 		if k.Active {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (s *MemoryKeyStore) CountActiveOperators(_ context.Context) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	n := 0
+	for _, k := range s.byID {
+		if k.Active && k.TenantID == "" && ParseRole(string(k.Role)) == RoleOperator {
 			n++
 		}
 	}
@@ -202,6 +216,11 @@ func (a *APIKeyAuthenticator) Authenticate(ctx context.Context, credential strin
 	if hex.EncodeToString(sum[:]) != key.Hash {
 		return Identity{}, fmt.Errorf("%w: invalid credentials", contracts.ErrForbidden)
 	}
+	if !ValidRole(string(key.Role)) ||
+		(key.TenantID == "" && key.Role != RoleOperator) ||
+		(key.TenantID != "" && key.Role == RoleOperator) {
+		return Identity{}, fmt.Errorf("%w: invalid credential role binding", contracts.ErrForbidden)
+	}
 	return Identity{
 		Principal: contracts.PrincipalRef{ID: key.PrincipalID, Type: contracts.PrincipalTypeHuman},
 		TenantID:  key.TenantID,
@@ -217,9 +236,15 @@ func (a *APIKeyAuthenticator) EnsureBootstrap(ctx context.Context, bootstrapPlai
 		return "", false, fmt.Errorf("%w: authenticator not configured", contracts.ErrInvalidArgument)
 	}
 	if bootstrapPlain != "" {
+		if tenantID != "" {
+			return "", false, fmt.Errorf("%w: bootstrap credential must be platform-wide", contracts.ErrInvalidArgument)
+		}
 		bootstrapPlain = strings.TrimSpace(bootstrapPlain)
 		// If already valid, do not re-issue.
-		if _, aerr := a.Authenticate(ctx, bootstrapPlain); aerr == nil {
+		if identity, aerr := a.Authenticate(ctx, bootstrapPlain); aerr == nil {
+			if identity.TenantID != "" || identity.Role != RoleOperator || identity.Principal.ID != "bootstrap" {
+				return "", false, fmt.Errorf("%w: CYBEROS_BOOTSTRAP_API_KEY must belong to the bootstrap principal and have platform operator role", contracts.ErrForbidden)
+			}
 			return "", false, nil
 		}
 		if !strings.HasPrefix(bootstrapPlain, "cos_") || len(bootstrapPlain) < 12 {
@@ -229,18 +254,21 @@ func (a *APIKeyAuthenticator) EnsureBootstrap(ctx context.Context, bootstrapPlai
 		sum := sha256.Sum256([]byte(bootstrapPlain))
 		key := APIKey{
 			ID: "key-bootstrap-env", Prefix: prefix, Hash: hex.EncodeToString(sum[:]),
-			PrincipalID: "bootstrap", TenantID: tenantID, Active: true, CreatedAt: a.Now(),
+			PrincipalID: "bootstrap", TenantID: tenantID, Role: RoleOperator, Active: true, CreatedAt: a.Now(),
 		}
 		if err := a.Store.Create(ctx, key); err != nil {
 			// Conflict: try authenticate again after concurrent create
-			if _, aerr := a.Authenticate(ctx, bootstrapPlain); aerr == nil {
+			if identity, aerr := a.Authenticate(ctx, bootstrapPlain); aerr == nil {
+				if identity.TenantID != "" || identity.Role != RoleOperator || identity.Principal.ID != "bootstrap" {
+					return "", false, fmt.Errorf("%w: CYBEROS_BOOTSTRAP_API_KEY must belong to the bootstrap principal and have platform operator role", contracts.ErrForbidden)
+				}
 				return "", false, nil
 			}
 			return "", false, err
 		}
 		return "", false, nil // env key installed; do not print
 	}
-	n, err := a.Store.CountActive(ctx)
+	n, err := a.Store.CountActiveOperators(ctx)
 	if err != nil {
 		return "", false, err
 	}

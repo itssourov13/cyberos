@@ -57,13 +57,68 @@ func (r *AssessmentRepo) GetByID(ctx context.Context, id string) (ports.Assessme
 	return scanAssessment(row)
 }
 
+// ClaimRun is a compare-and-set transition. Only one API replica can claim a
+// planned assessment; a restarted or competing worker cannot replay it.
+func (r *AssessmentRepo) ClaimRun(ctx context.Context, id string) (ports.AssessmentRecord, error) {
+	if id == "" {
+		return ports.AssessmentRecord{}, contracts.ErrInvalidArgument
+	}
+	rec, err := scanAssessment(r.db.QueryRowContext(ctx, `
+		UPDATE assessments
+		   SET state='RUNNING', updated_at=$2
+		 WHERE id=$1 AND state='PLANNED'
+		RETURNING id, project_id, scope_id, principal_id, title, target, state, steps, step_results, created_at, updated_at`,
+		id, time.Now().UTC()))
+	if err == nil {
+		return rec, nil
+	}
+	if !errors.Is(err, contracts.ErrNotFound) {
+		return ports.AssessmentRecord{}, err
+	}
+	if _, lookupErr := r.GetByID(ctx, id); errors.Is(lookupErr, contracts.ErrNotFound) {
+		return ports.AssessmentRecord{}, contracts.ErrNotFound
+	} else if lookupErr != nil {
+		return ports.AssessmentRecord{}, lookupErr
+	}
+	return ports.AssessmentRecord{}, fmt.Errorf("%w: assessment is not in PLANNED state", contracts.ErrConflict)
+}
+
+func (r *AssessmentRepo) ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]ports.AssessmentRecord, error) {
+	if projectID == "" {
+		return nil, contracts.ErrInvalidArgument
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	if offset < 0 {
+		return nil, contracts.ErrInvalidArgument
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, project_id, scope_id, principal_id, title, target, state, steps, step_results, created_at, updated_at
+		FROM assessments WHERE project_id=$1
+		ORDER BY created_at DESC, id ASC LIMIT $2 OFFSET $3`, string(projectID), limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ports.AssessmentRecord
+	for rows.Next() {
+		rec, err := scanAssessment(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rec)
+	}
+	return out, rows.Err()
+}
+
 func (r *AssessmentRepo) List(ctx context.Context, limit, offset int) ([]ports.AssessmentRecord, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, project_id, scope_id, principal_id, title, target, state, steps, step_results, created_at, updated_at
-		FROM assessments ORDER BY created_at DESC LIMIT $1 OFFSET $2`, limit, offset)
+		FROM assessments ORDER BY created_at DESC, id ASC LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		return nil, err
 	}

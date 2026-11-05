@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"errors"
 	"net/http"
 
 	"cyberos/internal/contracts"
@@ -22,7 +23,11 @@ func (s *Server) handleRisks(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
-		list := s.SDK.RiskPrio.ListByAssessment(assessment)
+		list, err := s.SDK.RiskPrio.ListByAssessmentPage(r.Context(), assessment, 500, 0)
+		if err != nil {
+			writeErr(w, statusForErr(err), publicErr(err))
+			return
+		}
 		filtered := make([]*riskprio.Evaluation, 0, len(list))
 		for _, ev := range list {
 			if ev.ProjectID == a.ProjectID {
@@ -40,7 +45,12 @@ func (s *Server) handleRisks(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"risks": []any{}})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"risks": s.SDK.RiskPrio.ListByProject(project)})
+	list, err := s.SDK.RiskPrio.ListByProjectPage(r.Context(), project, 500, 0)
+	if err != nil {
+		writeErr(w, statusForErr(err), publicErr(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"risks": list})
 }
 
 func (s *Server) handleRiskByID(w http.ResponseWriter, r *http.Request) {
@@ -54,8 +64,12 @@ func (s *Server) handleRiskByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ev, err := s.SDK.RiskPrio.Get(id)
+	if errors.Is(err, contracts.ErrNotFound) || (err == nil && ev == nil) {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
 	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+		writeErr(w, statusForErr(err), publicErr(err))
 		return
 	}
 	if !enforceObject(w, r, "", ev.ProjectID) {
@@ -99,7 +113,12 @@ func (s *Server) handleAssessmentRiskSummary(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusOK, map[string]any{"summary": map[string]any{}})
 		return
 	}
-	writeJSON(w, http.StatusOK, s.SDK.RiskPrio.SummarizeAssessment(id))
+	summary, err := s.SDK.RiskPrio.SummarizeAssessmentContext(r.Context(), id)
+	if err != nil {
+		writeErr(w, statusForErr(err), publicErr(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
 }
 
 func (s *Server) handleAssetRisks(w http.ResponseWriter, r *http.Request) {
@@ -125,11 +144,15 @@ func (s *Server) handleAssetRisks(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"risks": []any{}})
 		return
 	}
-	// Defense in depth: never return evaluations that belong to another project.
-	risks := s.SDK.RiskPrio.ListByAsset(contracts.AssetID(id))
-	out := make([]*riskprio.Evaluation, 0, len(risks))
+	// Query the durable project page, then filter to the canonical asset.
+	risks, err := s.SDK.RiskPrio.ListByProjectPage(r.Context(), asset.ProjectID, 500, 0)
+	if err != nil {
+		writeErr(w, statusForErr(err), publicErr(err))
+		return
+	}
+	out := make([]*riskprio.Evaluation, 0)
 	for _, ev := range risks {
-		if ev.ProjectID == asset.ProjectID {
+		if ev.AssetID == contracts.AssetID(id) && ev.ProjectID == asset.ProjectID {
 			out = append(out, ev)
 		}
 	}

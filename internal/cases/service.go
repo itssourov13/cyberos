@@ -4,7 +4,9 @@ package cases
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -169,20 +171,22 @@ func (s *Service) Get(id string) (*Case, error) {
 	return clone(c), nil
 }
 
-// ListByProject returns cases for a project (repository-backed when durable).
-func (s *Service) ListByProject(projectID contracts.ProjectID) []*Case {
+// ListByProjectPage returns a bounded project page. Durable read failures are
+// surfaced so callers do not mistake database outages for an empty case queue.
+func (s *Service) ListByProjectPage(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]*Case, error) {
+	if s == nil || projectID == "" || limit < 1 || limit > 500 || offset < 0 {
+		return nil, contracts.ErrInvalidArgument
+	}
 	if s.repo != nil {
-		ctx, cancel := ctxTO()
-		defer cancel()
-		recs, err := s.repo.ListByProject(ctx, projectID, 500, 0)
+		recs, err := s.repo.ListByProject(ctx, projectID, limit, offset)
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		out := make([]*Case, 0, len(recs))
-		for _, r := range recs {
-			out = append(out, recordToCase(r))
+		for _, rec := range recs {
+			out = append(out, recordToCase(rec))
 		}
-		return out
+		return out, nil
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -192,23 +196,44 @@ func (s *Service) ListByProject(projectID contracts.ProjectID) []*Case {
 			out = append(out, clone(c))
 		}
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+	if offset >= len(out) {
+		return []*Case{}, nil
+	}
+	out = out[offset:]
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// ListByProject is the compatibility page for tests and local tooling.
+func (s *Service) ListByProject(projectID contracts.ProjectID) []*Case {
+	out, _ := s.ListByProjectPage(context.Background(), projectID, 500, 0)
 	return out
 }
 
-// ListByAssessment returns cases for an assessment.
-func (s *Service) ListByAssessment(assessmentID string) []*Case {
+// ListByAssessmentPage returns a bounded assessment page and propagates
+// durable read errors. The compatibility method below is for local tooling only.
+func (s *Service) ListByAssessmentPage(ctx context.Context, assessmentID string, limit, offset int) ([]*Case, error) {
+	if s == nil || assessmentID == "" || limit < 1 || limit > 500 || offset < 0 {
+		return nil, contracts.ErrInvalidArgument
+	}
 	if s.repo != nil {
-		ctx, cancel := ctxTO()
-		defer cancel()
-		recs, err := s.repo.ListByAssessment(ctx, assessmentID, 500, 0)
+		recs, err := s.repo.ListByAssessment(ctx, assessmentID, limit, offset)
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		out := make([]*Case, 0, len(recs))
-		for _, r := range recs {
-			out = append(out, recordToCase(r))
+		for _, rec := range recs {
+			out = append(out, recordToCase(rec))
 		}
-		return out
+		return out, nil
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -218,7 +243,25 @@ func (s *Service) ListByAssessment(assessmentID string) []*Case {
 			out = append(out, clone(c))
 		}
 	}
-	return out
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+	if offset >= len(out) {
+		return []*Case{}, nil
+	}
+	out = out[offset:]
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (s *Service) ListByAssessment(assessmentID string) []*Case {
+	rows, _ := s.ListByAssessmentPage(context.Background(), assessmentID, 500, 0)
+	return rows
 }
 
 // TransitionStatus applies a transition attributed to the "system" actor.
@@ -354,24 +397,32 @@ func (s *Service) LinkAsset(id string, assetID contracts.AssetID) (*Case, error)
 }
 
 // DerivePriorityFromRisks sets case priority to the max of linked risk evaluations.
+// A database read failure is not mistaken for a finding with no risk assessment.
 func (s *Service) DerivePriorityFromRisks(id string, engine *riskprio.Engine) (*Case, error) {
-	return s.mutate(id, func(c *Case) {
-		if engine == nil {
-			return
+	c, err := s.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if engine == nil {
+		return c, nil
+	}
+	maxScore := -1
+	best := c.Priority
+	for _, findingID := range c.FindingIDs {
+		ev, err := engine.GetByFinding(findingID)
+		if errors.Is(err, contracts.ErrNotFound) {
+			continue
 		}
-		maxScore := -1
-		best := c.Priority
-		for _, fid := range c.FindingIDs {
-			ev, err := engine.GetByFinding(fid)
-			if err != nil {
-				continue
-			}
-			if ev.Score > maxScore {
-				maxScore = ev.Score
-				best = ev.Priority
-			}
+		if err != nil {
+			return nil, fmt.Errorf("load risk evaluation for finding %s: %w", findingID, err)
 		}
-		c.Priority = best
+		if ev.Score > maxScore {
+			maxScore = ev.Score
+			best = ev.Priority
+		}
+	}
+	return s.mutate(id, func(current *Case) {
+		current.Priority = best
 	})
 }
 

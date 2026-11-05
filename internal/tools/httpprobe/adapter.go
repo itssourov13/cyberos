@@ -57,6 +57,9 @@ func New(opts Options) *Adapter {
 
 func (a *Adapter) Descriptor() tools.Descriptor { return a.desc }
 
+// RequiresTargetBinding identifies HTTP probing as a URL-directed executor.
+func (a *Adapter) RequiresTargetBinding() bool { return true }
+
 func (a *Adapter) Health(ctx context.Context) tools.HealthReport {
 	now := time.Now().UTC()
 	path, err := exec.LookPath(a.bin)
@@ -82,6 +85,12 @@ func (a *Adapter) Run(ctx context.Context, capability contracts.CapabilityID, pa
 		return tools.NormalizedResult{}, fmt.Errorf("%w: binary path cannot be supplied in parameters", contracts.ErrInvalidArgument)
 	}
 	url, _ := params["url"].(string)
+	if strings.TrimSpace(url) == "" {
+		// The shared UI uses the canonical target field for target-driven tools.
+		// Keep this adapter's URL spelling as a compatible alias without
+		// accepting a second, unbound destination.
+		url, _ = params["target"].(string)
+	}
 	url = strings.TrimSpace(url)
 	if url == "" {
 		return tools.NormalizedResult{}, fmt.Errorf("%w: url required", contracts.ErrInvalidArgument)

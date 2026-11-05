@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"net"
 	"net/http"
 	"strconv"
 	"sync"
@@ -102,15 +103,17 @@ func NewSafetyLimiter(cfg RateLimitConfig) *SafetyLimiter {
 }
 
 func rateLimitKey(r *http.Request, group string) string {
-	prin := ""
 	if p, ok := auth.PrincipalFromContext(r.Context()); ok {
-		prin = string(p.ID)
+		tenant, _ := auth.TenantFromContext(r.Context())
+		return group + "|principal|" + string(tenant) + "|" + string(p.ID)
 	}
-	proj := r.Header.Get("X-CyberOS-Project")
-	if proj == "" {
-		proj = r.URL.Query().Get("project_id")
+	// Never key a limiter on client-controlled project headers/query parameters:
+	// changing them on each request would let a caller mint unlimited buckets.
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil || host == "" {
+		host = r.RemoteAddr
 	}
-	return group + "|" + prin + "|" + proj
+	return group + "|remote|" + host
 }
 
 // limitRequest applies fixed-window limit; writes 429 on exhaustion.

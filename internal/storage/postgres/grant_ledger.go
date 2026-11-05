@@ -173,7 +173,8 @@ func (l *GrantLedger) Get(ctx context.Context, id contracts.ExecutionGrantID) (b
 }
 
 func (l *GrantLedger) Cleanup(ctx context.Context, expiredBefore time.Time) (int64, error) {
-	res, err := l.db.ExecContext(ctx, `DELETE FROM execution_grant_ledger WHERE expires_at < $1`, expiredBefore.UTC())
+	res, err := l.db.ExecContext(ctx, `DELETE FROM execution_grant_ledger
+		WHERE expires_at < $1 AND state IN ('COMPLETED','FAILED','REVOKED')`, expiredBefore.UTC())
 	if err != nil {
 		return 0, fmt.Errorf("cleanup grants: %w", err)
 	}

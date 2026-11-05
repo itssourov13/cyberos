@@ -2,7 +2,9 @@ package findings
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"cyberos/internal/contracts"
@@ -58,20 +60,27 @@ func (s *Service) Ingest(req IngestRequest) ([]IngestResult, error) {
 		}
 		hs := parseSeverity(h.Severity, sev)
 		fp := Fingerprint(string(req.ProjectID), target, req.Result.Capability, title, h.Detail)
-		s.mu.RLock()
-		existing := s.byFingerprint[fp]
-		s.mu.RUnlock()
-		if existing == nil && s.repo != nil {
-			if loaded, err := s.repo.GetByFingerprint(context.Background(), req.ProjectID, fp); err == nil {
+		var existing *domainfinding.Finding
+		if s.repo != nil {
+			loaded, err := s.repo.GetByFingerprint(context.Background(), req.ProjectID, fp)
+			switch {
+			case err == nil:
 				existing = loaded
-				s.mu.Lock()
-				s.items[loaded.ID] = loaded
-				s.byFingerprint[fp] = loaded
-				s.mu.Unlock()
+			case errors.Is(err, contracts.ErrNotFound):
+				// No existing finding for this fingerprint.
+			case err != nil:
+				return out, fmt.Errorf("lookup finding fingerprint: %w", err)
 			}
+		} else {
+			s.mu.RLock()
+			existing = s.byFingerprint[fp]
+			s.mu.RUnlock()
 		}
 		now := time.Now().UTC()
 		if existing != nil {
+			// Never mutate a repository-returned or shared cache object in place.
+			cp := *existing
+			existing = &cp
 			action := contracts.FindingStatusUnchanged
 			if existing.Status == contracts.FindingStatusResolved {
 				existing.Status = contracts.FindingStatusReopened
@@ -85,10 +94,16 @@ func (s *Service) Ingest(req IngestRequest) ([]IngestResult, error) {
 			if len(req.EvidenceIDs) > 0 {
 				existing.EvidenceIDs = appendUnique(existing.EvidenceIDs, req.EvidenceIDs...)
 			}
-			out = append(out, IngestResult{Finding: existing, Action: action})
 			if err := s.persist(existing); err != nil {
-				return out, err
+				return out, fmt.Errorf("persist updated finding %s: %w", existing.ID, err)
 			}
+			if s.repo == nil {
+				s.mu.Lock()
+				s.items[existing.ID] = existing
+				s.byFingerprint[fp] = existing
+				s.mu.Unlock()
+			}
+			out = append(out, IngestResult{Finding: existing, Action: action})
 			continue
 		}
 		id := contracts.FindingID(fmt.Sprintf("f-%s-%d", fp[:8], i))
@@ -108,15 +123,17 @@ func (s *Service) Ingest(req IngestRequest) ([]IngestResult, error) {
 		f.CorrelationID = req.CorrelationID
 		f.EvidenceIDs = append([]contracts.EvidenceID{}, req.EvidenceIDs...)
 		f.Status = contracts.FindingStatusNew
-		s.mu.Lock()
-		s.items[f.ID] = f
-		if s.byFingerprint == nil {
-			s.byFingerprint = map[string]*domainfinding.Finding{}
-		}
-		s.byFingerprint[fp] = f
-		s.mu.Unlock()
 		if err := s.persist(f); err != nil {
-			return out, err
+			return out, fmt.Errorf("persist new finding %s: %w", f.ID, err)
+		}
+		if s.repo == nil {
+			s.mu.Lock()
+			s.items[f.ID] = f
+			if s.byFingerprint == nil {
+				s.byFingerprint = map[string]*domainfinding.Finding{}
+			}
+			s.byFingerprint[fp] = f
+			s.mu.Unlock()
 		}
 		out = append(out, IngestResult{Finding: f, Action: contracts.FindingStatusNew})
 	}
@@ -125,6 +142,21 @@ func (s *Service) Ingest(req IngestRequest) ([]IngestResult, error) {
 
 // Resolve marks a finding resolved (does not delete history).
 func (s *Service) Resolve(id contracts.FindingID) (*domainfinding.Finding, error) {
+	if s == nil {
+		return nil, contracts.ErrInvalidArgument
+	}
+	if s.repo != nil {
+		f, err := s.repo.GetByID(context.Background(), id)
+		if err != nil {
+			return nil, err
+		}
+		f.Status = contracts.FindingStatusResolved
+		f.LastSeen = time.Now().UTC()
+		if err := s.persist(f); err != nil {
+			return nil, fmt.Errorf("persist finding resolution: %w", err)
+		}
+		return f, nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f, ok := s.items[id]
@@ -133,9 +165,6 @@ func (s *Service) Resolve(id contracts.FindingID) (*domainfinding.Finding, error
 	}
 	f.Status = contracts.FindingStatusResolved
 	f.LastSeen = time.Now().UTC()
-	if err := s.persist(f); err != nil {
-		return nil, err
-	}
 	return f, nil
 }
 
@@ -151,14 +180,56 @@ func (s *Service) GetByFingerprint(fp string) (*domainfinding.Finding, error) {
 	return &cp, nil
 }
 
-// ListByProject returns findings for a project.
-func (s *Service) ListByProject(projectID contracts.ProjectID) []*domainfinding.Finding {
-	return s.filter(func(f *domainfinding.Finding) bool { return f.ProjectID == projectID })
+// ListByProjectPage reads an authoritative project page from the durable
+// repository when configured. Read errors are never converted to an empty list.
+func (s *Service) ListByProjectPage(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]*domainfinding.Finding, error) {
+	if s == nil || projectID == "" || limit < 1 || limit > 500 || offset < 0 {
+		return nil, contracts.ErrInvalidArgument
+	}
+	if s.repo != nil {
+		return s.repo.ListByProject(ctx, projectID, limit, offset)
+	}
+	return pageFindings(s.filter(func(f *domainfinding.Finding) bool { return f.ProjectID == projectID }), limit, offset), nil
 }
 
-// ListByAssessment returns findings for an assessment.
+// ListByAssessmentPage is the durable read path for one assessment.
+func (s *Service) ListByAssessmentPage(ctx context.Context, assessmentID string, limit, offset int) ([]*domainfinding.Finding, error) {
+	if s == nil || assessmentID == "" || limit < 1 || limit > 500 || offset < 0 {
+		return nil, contracts.ErrInvalidArgument
+	}
+	if s.repo != nil {
+		return s.repo.ListByAssessment(ctx, assessmentID, limit, offset)
+	}
+	return pageFindings(s.filter(func(f *domainfinding.Finding) bool { return f.AssessmentID == assessmentID }), limit, offset), nil
+}
+
+// ListByProject returns the legacy in-memory page.
+func (s *Service) ListByProject(projectID contracts.ProjectID) []*domainfinding.Finding {
+	rows, _ := s.ListByProjectPage(context.Background(), projectID, 500, 0)
+	return rows
+}
+
+// ListByAssessment returns the legacy in-memory page.
 func (s *Service) ListByAssessment(assessmentID string) []*domainfinding.Finding {
-	return s.filter(func(f *domainfinding.Finding) bool { return f.AssessmentID == assessmentID })
+	rows, _ := s.ListByAssessmentPage(context.Background(), assessmentID, 500, 0)
+	return rows
+}
+
+func pageFindings(rows []*domainfinding.Finding, limit, offset int) []*domainfinding.Finding {
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].ProducedAt.Equal(rows[j].ProducedAt) {
+			return rows[i].ID < rows[j].ID
+		}
+		return rows[i].ProducedAt.After(rows[j].ProducedAt)
+	})
+	if offset >= len(rows) {
+		return []*domainfinding.Finding{}
+	}
+	rows = rows[offset:]
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	return rows
 }
 
 // ListByTask returns findings for a task.

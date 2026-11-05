@@ -27,7 +27,7 @@ func SessionTokenFromContext(ctx context.Context) (string, bool) {
 type Middleware struct {
 	Auth Authenticator
 	// Sessions enables cookie sessions. Nil = header credentials only.
-	Sessions *SessionStore
+	Sessions SessionRepository
 	// AllowedOrigins lists extra trusted origins (scheme://host[:port]) for
 	// cookie-authenticated writes; same-origin is always allowed.
 	AllowedOrigins []string
@@ -45,6 +45,7 @@ func NewMiddleware(a Authenticator) *Middleware {
 			"/api/v1/health":     true,
 			"/api/v1/version":    true,
 			"/api/v1/auth/login": true,
+			"/api/v1/ready":      true,
 		},
 	}
 }
@@ -72,18 +73,32 @@ func (m *Middleware) OriginAllowed(r *http.Request) bool {
 		return false
 	}
 	u, err := url.Parse(o)
-	if err != nil || u.Host == "" {
+	if err != nil || u.Scheme == "" || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
 		return false
 	}
-	if u.Host == r.Host {
+	requestScheme := "http"
+	if r.TLS != nil {
+		requestScheme = "https"
+	}
+	if strings.EqualFold(u.Scheme, requestScheme) && strings.EqualFold(u.Host, r.Host) {
 		return true
 	}
-	for _, a := range m.AllowedOrigins {
-		if strings.EqualFold(strings.TrimRight(a, "/"), o) {
+	for _, allowed := range m.AllowedOrigins {
+		parsed, err := url.Parse(strings.TrimSpace(allowed))
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+			continue
+		}
+		if strings.EqualFold(parsed.Scheme, u.Scheme) && strings.EqualFold(parsed.Host, u.Host) {
 			return true
 		}
 	}
 	return false
+}
+
+func isWorkerHeartbeatPath(path string) bool {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	return len(parts) == 7 && parts[0] == "api" && parts[1] == "v1" &&
+		parts[2] == "projects" && parts[4] == "workers" && parts[5] != "" && parts[6] == "heartbeat"
 }
 
 // Wrap returns an http.Handler that authenticates then calls next.
@@ -91,6 +106,12 @@ func (m *Middleware) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if m == nil || m.Auth == nil {
 			unauthorized(w, "auth not configured")
+			return
+		}
+		// Worker heartbeat is authenticated by a verified mTLS peer certificate
+		// in its handler, not by a human/browser API key.
+		if r.Method == http.MethodPost && isWorkerHeartbeatPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
 			return
 		}
 		// Only the API is protected; the SPA shell and static assets are public
@@ -118,7 +139,11 @@ func (m *Middleware) Wrap(next http.Handler) http.Handler {
 		}
 		if m.Sessions != nil {
 			if c, err := r.Cookie(SessionCookieName); err == nil {
-				sess, ok := m.Sessions.Lookup(c.Value)
+				sess, ok, err := m.Sessions.LookupContext(r.Context(), c.Value)
+				if err != nil {
+					http.Error(w, "session storage unavailable", http.StatusServiceUnavailable)
+					return
+				}
 				if !ok {
 					unauthorized(w, "session expired")
 					return

@@ -23,10 +23,17 @@ type Session struct {
 	IdleUntil time.Time
 }
 
-// SessionStore keeps sessions in process memory keyed by the SHA-256 of the
-// token, so a memory/log disclosure of the store does not yield usable tokens.
-// Sessions do not survive a restart (users sign in again); durable sessions
-// are a documented follow-up.
+// SessionRepository is the storage contract used by cookie authentication.
+// Production implementations must be shared and durable across API replicas.
+type SessionRepository interface {
+	Create(context.Context, Identity) (string, Session, error)
+	LookupContext(context.Context, string) (Session, bool, error)
+	DeleteContext(context.Context, string) error
+}
+
+// SessionStore is the development-only in-memory session repository. Production
+// must use the PostgreSQL implementation so sessions survive restarts and are
+// shared between API replicas.
 type SessionStore struct {
 	TTL     time.Duration // absolute lifetime
 	Idle    time.Duration // sliding idle timeout
@@ -105,12 +112,47 @@ func (s *SessionStore) Lookup(token string) (Session, bool) {
 	return *sess, true
 }
 
+// LookupContext implements SessionRepository.
+func (s *SessionStore) LookupContext(ctx context.Context, token string) (Session, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return Session{}, false, err
+	}
+	sess, ok := s.Lookup(token)
+	return sess, ok, nil
+}
+
 // Delete ends a session.
 func (s *SessionStore) Delete(token string) {
 	s.mu.Lock()
 	delete(s.m, tokenKey(token))
 	s.mu.Unlock()
 }
+
+// DeleteContext implements SessionRepository.
+func (s *SessionStore) DeleteContext(ctx context.Context, token string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.Delete(token)
+	return nil
+}
+
+// DeleteByAPIKey invalidates every in-memory session created from a credential.
+func (s *SessionStore) DeleteByAPIKey(ctx context.Context, keyID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for digest, sess := range s.m {
+		if sess.Identity.APIKeyID == keyID {
+			delete(s.m, digest)
+		}
+	}
+	return nil
+}
+
+var _ SessionRepository = (*SessionStore)(nil)
 
 func (s *SessionStore) sweepLocked(now time.Time) {
 	for k, v := range s.m {

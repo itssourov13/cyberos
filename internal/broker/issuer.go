@@ -173,6 +173,9 @@ func (i *Issuer) IssueAfterEvaluateWith(
 	if !d.Allowed() {
 		return nil, d, fmt.Errorf("%w: %s", contracts.ErrForbidden, d.Reason)
 	}
+	if evalReq.AssetID != "" && !containsAsset(constraints.AllowedAssetIDs, evalReq.AssetID) {
+		constraints.AllowedAssetIDs = append(constraints.AllowedAssetIDs, evalReq.AssetID)
+	}
 	issueReq := IssueRequest{
 		Decision:      d,
 		Principal:     d.Principal,
@@ -193,6 +196,15 @@ func (i *Issuer) IssueAfterEvaluateWith(
 	}
 	g, err := i.Issue(ctx, issueReq)
 	return g, d, err
+}
+
+func containsAsset(items []contracts.AssetID, target contracts.AssetID) bool {
+	for _, item := range items {
+		if item == target {
+			return true
+		}
+	}
+	return false
 }
 
 func randomNonce(n int) (string, error) {

@@ -2,11 +2,12 @@ package v1
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"cyberos/internal/assessment"
+	"cyberos/internal/auth"
 	"cyberos/internal/contracts"
-	"cyberos/internal/sdk"
 )
 
 type createAssessmentBody struct {
@@ -35,8 +36,12 @@ func (s *Server) loadAssessment(w http.ResponseWriter, r *http.Request, id strin
 		return nil, false
 	}
 	a, err := s.SDK.GetAssessment(id)
-	if err != nil || a == nil {
+	if errors.Is(err, contracts.ErrNotFound) || (err == nil && a == nil) {
 		writeErr(w, http.StatusNotFound, "not found")
+		return nil, false
+	}
+	if err != nil {
+		writeErr(w, statusForErr(err), publicErr(err))
 		return nil, false
 	}
 	if !enforceObject(w, r, "", a.ProjectID) {
@@ -48,7 +53,7 @@ func (s *Server) loadAssessment(w http.ResponseWriter, r *http.Request, id strin
 func (s *Server) handleAssessments(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		if s.SDK == nil || s.SDK.Catalog == nil {
+		if s.SDK == nil || s.SDK.Assessment == nil {
 			writeJSON(w, http.StatusOK, map[string]any{"assessments": []any{}})
 			return
 		}
@@ -56,12 +61,14 @@ func (s *Server) handleAssessments(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
-		out := make([]sdk.AssessmentView, 0)
-		for _, a := range s.SDK.Catalog.ListAssessments() {
-			if project != "" && contracts.ProjectID(a.ProjectID) != project {
-				continue
-			}
-			if !resourceVisible(r, contracts.ProjectID(a.ProjectID)) {
+		rows, err := s.SDK.ListAssessments(project, 500, 0)
+		if err != nil {
+			writeErr(w, statusForErr(err), publicErr(err))
+			return
+		}
+		out := make([]*assessment.Assessment, 0, len(rows))
+		for _, a := range rows {
+			if a == nil || !resourceVisible(r, a.ProjectID) {
 				continue
 			}
 			out = append(out, a)
@@ -79,6 +86,10 @@ func (s *Server) handleAssessments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !enforceProject(w, r, contracts.ProjectID(body.ProjectID)) {
+			return
+		}
+		// Route-to-permission matrix: creating an assessment is a write.
+		if !s.requirePermission(w, r, auth.PermWrite) {
 			return
 		}
 		if !s.scopeBelongsToProject(contracts.ProjectID(body.ProjectID), contracts.ScopeID(body.ScopeID)) {
@@ -127,7 +138,12 @@ func (s *Server) handleAssessmentPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	// Object-level authorization first (foreign ids stay 404), then the role check.
 	if _, ok := s.loadAssessment(w, r, id); !ok {
+		return
+	}
+	// Planning modifies the assessment: write permission.
+	if !s.requirePermission(w, r, auth.PermWrite) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -151,6 +167,10 @@ func (s *Server) handleAssessmentRun(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.PathValue("id")
 	if _, ok := s.loadAssessment(w, r, id); !ok {
+		return
+	}
+	// Running an assessment drives grant issuance and execution: execute permission.
+	if !s.requirePermission(w, r, auth.PermExecute) {
 		return
 	}
 	a, err := s.SDK.RunAssessment(r.Context(), id)

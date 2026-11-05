@@ -7,9 +7,9 @@ Phase 24C is **accepted**. 24D delivered: server-side sessions + cookie/CSRF aut
 Verified: `go vet ./...` and `go test ./...` clean; frontend `typecheck`, `lint` (0 warnings), `build` pass; earlier manual smoke of the embedded binary (SPA fallback, 404 asset, 401s, cookie flags, `/auth/me`).
 NOT verified: any PostgreSQL run (ledger, case history, migrations 022/023; integration tests are written but skipped without a DB), browser E2E, authenticated write flows from the real UI, UI screens beyond type/build checks. `go test -race` is unusable on this kernel (ThreadSanitizer VMA error).
 
-Known gap: API-key roles are not persisted/issuable, so every tenant key is `analyst`; admin-gated actions work only for the operator credential.
+Update (post-24D pass): API-key roles are persisted/issuable; `/audit` and `/projects/{p}/assignments` read endpoints exist; `main.go` now wires Workers/Assignments; live adapter serves workers/assignments/audit; Vitest added (17 tests). See `docs/PHASE24D.md` for the current remaining table.
 
-Next: API-key roles; read endpoints (workers list, packs/trust, decisions/grants/evidence/audit, assignments); wire worker/trust/assessment/report/autonomy controls; durable sessions; Vitest for the API client. Do not add authority to the browser.
+Next: packs/trust inventory (needs a design decision), decisions/grants/evidence/provenance reads, dashboard aggregates, role issuance path, wire UI controls, durable sessions, PostgreSQL run on a host that can run it. Do not add authority to the browser.
 
 ---
 ## Previous: Phase 24C notes (historical)

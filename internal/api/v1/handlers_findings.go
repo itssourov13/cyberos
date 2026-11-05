@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"errors"
 	"net/http"
 
 	"cyberos/internal/contracts"
@@ -22,7 +23,11 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
-		list := s.SDK.Findings.ListByAssessment(assessment)
+		list, err := s.SDK.Findings.ListByAssessmentPage(r.Context(), assessment, 500, 0)
+		if err != nil {
+			writeErr(w, statusForErr(err), publicErr(err))
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"findings": filterFindingsByProject(list, a.ProjectID)})
 		return
 	}
@@ -34,7 +39,12 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"findings": []any{}})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"findings": s.SDK.Findings.ListByProject(project)})
+	list, err := s.SDK.Findings.ListByProjectPage(r.Context(), project, 500, 0)
+	if err != nil {
+		writeErr(w, statusForErr(err), publicErr(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"findings": list})
 }
 
 func filterFindingsByProject(list []*domainfinding.Finding, proj contracts.ProjectID) []*domainfinding.Finding {
@@ -61,8 +71,12 @@ func (s *Server) handleFindingByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f, err := s.SDK.Findings.Get(contracts.FindingID(id))
+	if errors.Is(err, contracts.ErrNotFound) || (err == nil && f == nil) {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
 	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+		writeErr(w, statusForErr(err), publicErr(err))
 		return
 	}
 	if !enforceObject(w, r, "", f.ProjectID) {
@@ -85,6 +99,10 @@ func (s *Server) handleAssessmentFindings(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusOK, map[string]any{"findings": []any{}})
 		return
 	}
-	list := s.SDK.Findings.ListByAssessment(id)
+	list, err := s.SDK.Findings.ListByAssessmentPage(r.Context(), id, 500, 0)
+	if err != nil {
+		writeErr(w, statusForErr(err), publicErr(err))
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"findings": filterFindingsByProject(list, a.ProjectID)})
 }

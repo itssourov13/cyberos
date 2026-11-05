@@ -26,10 +26,10 @@ func (r *ProjectRepo) Create(ctx context.Context, p *project.Project) error {
 	}
 	meta, _ := json.Marshal(p.Metadata)
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO projects (id, name, description, status, created_at, updated_at, metadata)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		INSERT INTO projects (id, name, description, status, created_at, updated_at, metadata, tenant_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		string(p.ID), p.Name, p.Description, string(p.Status),
-		p.CreatedAt.UTC(), p.UpdatedAt.UTC(), meta,
+		p.CreatedAt.UTC(), p.UpdatedAt.UTC(), meta, nullStr(string(p.TenantID)),
 	)
 	if err != nil {
 		return fmt.Errorf("insert project: %w", err)
@@ -39,7 +39,7 @@ func (r *ProjectRepo) Create(ctx context.Context, p *project.Project) error {
 
 func (r *ProjectRepo) GetByID(ctx context.Context, id contracts.ProjectID) (*project.Project, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, name, description, status, created_at, updated_at, metadata
+		SELECT id, name, description, status, created_at, updated_at, metadata, tenant_id
 		FROM projects WHERE id = $1`, string(id))
 	return scanProject(row)
 }
@@ -52,8 +52,8 @@ func (r *ProjectRepo) Update(ctx context.Context, p *project.Project) error {
 	meta, _ := json.Marshal(p.Metadata)
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE projects SET name=$2, description=$3, status=$4, updated_at=$5, metadata=$6
-		WHERE id=$1`,
-		string(p.ID), p.Name, p.Description, string(p.Status), p.UpdatedAt, meta,
+		WHERE id=$1 AND COALESCE(tenant_id,'')=$7`,
+		string(p.ID), p.Name, p.Description, string(p.Status), p.UpdatedAt, meta, string(p.TenantID),
 	)
 	if err != nil {
 		return fmt.Errorf("update project: %w", err)
@@ -70,8 +70,8 @@ func (r *ProjectRepo) List(ctx context.Context, limit, offset int) ([]*project.P
 		limit = 50
 	}
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, name, description, status, created_at, updated_at, metadata
-		FROM projects ORDER BY created_at DESC LIMIT $1 OFFSET $2`, limit, offset)
+		SELECT id, name, description, status, created_at, updated_at, metadata, tenant_id
+		FROM projects ORDER BY created_at DESC, id ASC LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -94,10 +94,11 @@ type scannable interface {
 func scanProject(s scannable) (*project.Project, error) {
 	var (
 		id, name, desc, status string
+		tenantID               sql.NullString
 		created, updated       time.Time
 		metaRaw                []byte
 	)
-	if err := s.Scan(&id, &name, &desc, &status, &created, &updated, &metaRaw); err != nil {
+	if err := s.Scan(&id, &name, &desc, &status, &created, &updated, &metaRaw, &tenantID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, contracts.ErrNotFound
 		}
@@ -107,6 +108,7 @@ func scanProject(s scannable) (*project.Project, error) {
 	_ = json.Unmarshal(metaRaw, &meta)
 	p := &project.Project{
 		ID:          contracts.ProjectID(id),
+		TenantID:    contracts.TenantID(tenantID.String),
 		Name:        name,
 		Description: desc,
 		Status:      project.Status(status),

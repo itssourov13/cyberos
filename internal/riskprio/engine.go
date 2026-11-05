@@ -5,6 +5,7 @@ package riskprio
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -149,12 +150,14 @@ func (e *Engine) Evaluate(in Input) (*Evaluation, error) {
 		ModelVersion:     ModelVersion,
 		CalculatedAt:     time.Now().UTC(),
 	}
-	e.mu.Lock()
-	e.items[string(in.FindingID)] = ev
-	e.all[ev.ID] = ev
-	e.mu.Unlock()
 	if err := e.persist(ev); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("persist risk evaluation %s: %w", ev.ID, err)
+	}
+	if e.repo == nil {
+		e.mu.Lock()
+		e.items[string(in.FindingID)] = ev
+		e.all[ev.ID] = ev
+		e.mu.Unlock()
 	}
 	cp := *ev
 	return &cp, nil
@@ -178,6 +181,13 @@ func (e *Engine) EvaluateFinding(f *domainfinding.Finding, crit contracts.AssetC
 
 // Get returns evaluation by risk id.
 func (e *Engine) Get(id string) (*Evaluation, error) {
+	if e.repo != nil {
+		rec, err := e.repo.GetByID(context.Background(), id)
+		if err != nil {
+			return nil, err
+		}
+		return recordToEval(rec), nil
+	}
 	e.mu.RLock()
 	ev, ok := e.all[id]
 	if ok {
@@ -186,18 +196,18 @@ func (e *Engine) Get(id string) (*Evaluation, error) {
 		return &cp, nil
 	}
 	e.mu.RUnlock()
-	if e.repo != nil {
-		rec, err := e.repo.GetByID(context.Background(), id)
-		if err != nil {
-			return nil, err
-		}
-		return recordToEval(rec), nil
-	}
 	return nil, contracts.ErrNotFound
 }
 
 // GetByFinding returns the latest evaluation for a finding.
 func (e *Engine) GetByFinding(id contracts.FindingID) (*Evaluation, error) {
+	if e.repo != nil {
+		rec, err := e.repo.GetByFinding(context.Background(), id)
+		if err != nil {
+			return nil, err
+		}
+		return recordToEval(rec), nil
+	}
 	e.mu.RLock()
 	ev, ok := e.items[string(id)]
 	if ok {
@@ -206,13 +216,6 @@ func (e *Engine) GetByFinding(id contracts.FindingID) (*Evaluation, error) {
 		return &cp, nil
 	}
 	e.mu.RUnlock()
-	if e.repo != nil {
-		rec, err := e.repo.GetByFinding(context.Background(), id)
-		if err != nil {
-			return nil, err
-		}
-		return recordToEval(rec), nil
-	}
 	return nil, contracts.ErrNotFound
 }
 
@@ -226,14 +229,72 @@ func recordToEval(rec ports.RiskEvaluationRecord) *Evaluation {
 	}
 }
 
-// ListByProject returns evaluations for a project.
-func (e *Engine) ListByProject(projectID contracts.ProjectID) []*Evaluation {
-	return e.filter(func(ev *Evaluation) bool { return ev.ProjectID == projectID })
+// ListByProjectPage reads an authoritative project page from PostgreSQL when
+// configured; durable read errors are returned to the API instead of hidden.
+func (e *Engine) ListByProjectPage(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]*Evaluation, error) {
+	if e == nil || projectID == "" || limit < 1 || limit > 500 || offset < 0 {
+		return nil, contracts.ErrInvalidArgument
+	}
+	if e.repo != nil {
+		rows, err := e.repo.ListByProject(ctx, projectID, limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]*Evaluation, 0, len(rows))
+		for _, row := range rows {
+			out = append(out, recordToEval(row))
+		}
+		return out, nil
+	}
+	return pageEvaluations(e.filter(func(ev *Evaluation) bool { return ev.ProjectID == projectID }), limit, offset), nil
 }
 
-// ListByAssessment returns evaluations for an assessment.
+// ListByAssessmentPage is the durable assessment-scoped read path.
+func (e *Engine) ListByAssessmentPage(ctx context.Context, assessmentID string, limit, offset int) ([]*Evaluation, error) {
+	if e == nil || assessmentID == "" || limit < 1 || limit > 500 || offset < 0 {
+		return nil, contracts.ErrInvalidArgument
+	}
+	if e.repo != nil {
+		rows, err := e.repo.ListByAssessment(ctx, assessmentID, limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]*Evaluation, 0, len(rows))
+		for _, row := range rows {
+			out = append(out, recordToEval(row))
+		}
+		return out, nil
+	}
+	return pageEvaluations(e.filter(func(ev *Evaluation) bool { return ev.AssessmentID == assessmentID }), limit, offset), nil
+}
+
+// ListByProject returns the compatibility page.
+func (e *Engine) ListByProject(projectID contracts.ProjectID) []*Evaluation {
+	out, _ := e.ListByProjectPage(context.Background(), projectID, 500, 0)
+	return out
+}
+
+// ListByAssessment returns the compatibility page.
 func (e *Engine) ListByAssessment(assessmentID string) []*Evaluation {
-	return e.filter(func(ev *Evaluation) bool { return ev.AssessmentID == assessmentID })
+	out, _ := e.ListByAssessmentPage(context.Background(), assessmentID, 500, 0)
+	return out
+}
+
+func pageEvaluations(rows []*Evaluation, limit, offset int) []*Evaluation {
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].CalculatedAt.Equal(rows[j].CalculatedAt) {
+			return rows[i].ID < rows[j].ID
+		}
+		return rows[i].CalculatedAt.After(rows[j].CalculatedAt)
+	})
+	if offset >= len(rows) {
+		return []*Evaluation{}
+	}
+	rows = rows[offset:]
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	return rows
 }
 
 // ListByAsset returns evaluations for an asset.
@@ -250,9 +311,12 @@ type Summary struct {
 	ModelVersion string         `json:"model_version"`
 }
 
-// SummarizeAssessment builds a priority distribution.
-func (e *Engine) SummarizeAssessment(assessmentID string) Summary {
-	list := e.ListByAssessment(assessmentID)
+// SummarizeAssessmentContext reads every durable page so a restart does not
+// reset the risk summary to zero or silently cap it at the first 500 rows.
+func (e *Engine) SummarizeAssessmentContext(ctx context.Context, assessmentID string) (Summary, error) {
+	if e == nil || assessmentID == "" {
+		return Summary{}, contracts.ErrInvalidArgument
+	}
 	s := Summary{
 		AssessmentID: assessmentID,
 		ByPriority: map[string]int{
@@ -260,14 +324,29 @@ func (e *Engine) SummarizeAssessment(assessmentID string) Summary {
 		},
 		ModelVersion: ModelVersion,
 	}
-	for _, ev := range list {
-		s.Total++
-		s.ByPriority[string(ev.Priority)]++
-		if ev.Score > s.HighestScore {
-			s.HighestScore = ev.Score
+	for offset := 0; ; offset += 500 {
+		rows, err := e.ListByAssessmentPage(ctx, assessmentID, 500, offset)
+		if err != nil {
+			return Summary{}, err
+		}
+		for _, ev := range rows {
+			s.Total++
+			s.ByPriority[string(ev.Priority)]++
+			if ev.Score > s.HighestScore {
+				s.HighestScore = ev.Score
+			}
+		}
+		if len(rows) < 500 {
+			break
 		}
 	}
-	return s
+	return s, nil
+}
+
+// SummarizeAssessment is the compatibility helper for local tools.
+func (e *Engine) SummarizeAssessment(assessmentID string) Summary {
+	summary, _ := e.SummarizeAssessmentContext(context.Background(), assessmentID)
+	return summary
 }
 
 func (e *Engine) filter(pred func(*Evaluation) bool) []*Evaluation {

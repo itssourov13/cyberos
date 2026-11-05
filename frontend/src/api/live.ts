@@ -1,7 +1,9 @@
 import { ApiError, type CyberosApi } from './client'
 import { request } from './http'
 import type {
+  Assignment,
   Asset,
+  AuditEvent,
   CaseItem,
   DashboardSummary,
   Finding,
@@ -152,17 +154,66 @@ const mapReport = (r: Raw): Report => ({
   formats: ['json', 'markdown'],
 })
 
+/** A worker counts as online only while its heartbeat is recent; "active" alone is just its registry status. */
+const HEARTBEAT_FRESH_MS = 2 * 60_000
+
 function mapWorker(w: Raw): Worker {
   const st = str(w.status).toLowerCase()
+  const seen = iso(w.last_seen_at)
+  const fresh = seen !== '' && Date.now() - new Date(seen).getTime() < HEARTBEAT_FRESH_MS
   return {
     id: str(w.worker_id),
     projectId: str(w.project_id),
     name: str(w.host_id) || str(w.worker_id),
-    state: st === 'suspended' ? 'suspended' : st === 'revoked' ? 'revoked' : st === 'active' ? 'online' : 'stale',
+    state: st === 'suspended' ? 'suspended' : st === 'revoked' ? 'revoked' : st === 'active' && fresh ? 'online' : 'stale',
     identityFingerprint: str(w.cert_fingerprint),
-    lastHeartbeat: iso(w.last_seen_at),
+    lastHeartbeat: seen,
     load: 0,
     capabilities: [],
+  }
+}
+
+const ASSIGN_STATE: Record<string, Assignment['state']> = {
+  PENDING: 'leased',
+  DISPATCHED: 'leased',
+  CLAIMED: 'leased',
+  RUNNING: 'leased',
+  COMPLETED: 'completed',
+  FAILED: 'revoked',
+  CANCELLED: 'revoked',
+  EXPIRED: 'stale',
+}
+const mapAssignment = (a: Raw): Assignment => ({
+  id: str(a.assignment_id),
+  workerId: str(a.worker_id),
+  // The backend keys assignments by execution id; the column is labelled accordingly.
+  taskId: str(a.execution_id),
+  state: ASSIGN_STATE[str(a.status).toUpperCase()] ?? 'stale',
+  leaseExpires: iso(a.lease_until),
+  // The assignment record carries a result hash but no verifier verdict, so nothing is claimed as verified.
+  resultVerified: false,
+})
+
+const auditTone = (outcome: string, action: string): AuditEvent['tone'] => {
+  const o = outcome.toUpperCase()
+  if (o === 'DENIED' || o === 'FAILED' || o === 'REJECTED') return 'danger'
+  if (/^GRANT/i.test(action)) return 'grant'
+  if (/TRUST|SIGNER|PACK/i.test(action)) return 'trust'
+  if (/EVIDENCE|PROVENANCE|VERIF/i.test(action)) return 'evidence'
+  if (o === 'ALLOWED' || o === 'SUCCEEDED') return 'ok'
+  return 'info'
+}
+function mapAudit(e: Raw): AuditEvent {
+  const subject = [str(e.task_id), str(e.grant_id) || str(e.decision_id), str(e.reason)].filter(Boolean).join(' · ')
+  return {
+    id: str(e.id),
+    at: iso(e.at),
+    actor: str(e.actor) || 'system',
+    action: str(e.action),
+    subject: subject || str(e.project_id),
+    tone: auditTone(str(e.outcome), str(e.action)),
+    // The audit feed carries no content digest; the UI hides the field when empty.
+    digest: '',
   }
 }
 
@@ -244,7 +295,7 @@ export const liveApi: CyberosApi = {
 
   async submitSpineRequest(req: SpineRequest): Promise<SpineTrace> {
     // The authenticated principal is bound server-side; none is sent.
-    const body = { project_id: req.projectId, scope_id: req.scopeId, task_id: req.taskId ?? '', capability_id: req.capability }
+    const body = { project_id: req.projectId, scope_id: req.scopeId, task_id: req.taskId ?? '', capability_id: req.capability, target: req.target }
     const rid = `req-${Date.now().toString(36)}`
     const stages: SpineStage[] = [{ id: 'scope', label: 'Scope', outcome: 'pass', detail: `Scope ${req.scopeId} evaluated by the control plane.` }]
     let grant: Raw | undefined
@@ -262,7 +313,9 @@ export const liveApi: CyberosApi = {
     }
     stages.push({ id: 'grant', label: 'Grant', outcome: 'pass', detail: 'Execution grant issued by the control plane.', ref: str(grant?.id) })
     try {
-      const res = await request<Raw>('/execute', { method: 'POST', body: { grant, parameters: req.target ? { target: req.target } : {} }, timeoutMs: 60_000 })
+      const grantConstraints = (grant?.constraints ?? {}) as Raw
+      const boundTarget = str(arr(grantConstraints.allowed_targets)[0])
+      const res = await request<Raw>('/execute', { method: 'POST', body: { grant, parameters: boundTarget || req.target ? { target: boundTarget || req.target } : {} }, timeoutMs: 60_000 })
       const failed = /fail|denied|error/i.test(str(res.status))
       stages.push({ id: 'broker', label: 'Broker', outcome: 'pass', detail: 'Grant verified by the broker.' })
       stages.push({ id: 'execution', label: 'Execution', outcome: failed ? 'deny' : 'pass', detail: str(res.error_message) || str(res.status) })
@@ -279,20 +332,25 @@ export const liveApi: CyberosApi = {
   },
 
   async workers(): Promise<Worker[]> {
-    // Registration/suspend/revoke exist per project, but the list route is a
-    // stub in the backend, so no truthful fleet view can be built yet.
-    return unsupported('Worker listing')
+    // Worker routes are project-scoped, so fan out over the caller's projects.
+    const ids = (await projectsRaw()).map((p) => str(p.ID))
+    const pages = await Promise.all(ids.map((id) => request<Raw>(`/projects/${encodeURIComponent(id)}/workers`)))
+    return pages.flatMap((p) => arr(p.workers).map(mapWorker))
   },
-  assignments: async () => unsupported('Assignments'),
+  async assignments(): Promise<Assignment[]> {
+    const ids = (await projectsRaw()).map((p) => str(p.ID))
+    const pages = await Promise.all(ids.map((id) => request<Raw>(`/projects/${encodeURIComponent(id)}/assignments`)))
+    return pages.flatMap((p) => arr(p.assignments).map(mapAssignment))
+  },
   packs: async () => unsupported('Pack and trust inventory'),
-  audit: async () => unsupported('The audit feed'),
+  // Audit reads need audit.read (analyst+). A viewer gets a 403 ApiError, which the UI shows as-is.
+  audit: () => perProject('/audit', 'entries', mapAudit, undefined, { limit: '100' }),
 
   assets: () => perProject('/assets', 'assets', mapAsset),
   findings: () => perProject('/findings', 'findings', mapFinding),
   cases: () => perProject('/cases', 'cases', mapCase),
   reports: () => perProject('/reports', 'reports', mapReport),
 
-  // `mapWorker` is exported for the worker admin surfaces once listing exists.
 }
 
 export { mapWorker }
