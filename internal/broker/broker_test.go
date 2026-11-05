@@ -110,6 +110,52 @@ func TestIssueAndExecuteHappyPath(t *testing.T) {
 	}
 }
 
+func TestRestrictedScopeRequiresAssetAndBrokerBindsTarget(t *testing.T) {
+	pr := &memP{}
+	sr := &memS{}
+	p, _ := principal.NewHuman("user-1", "alice")
+	if err := pr.Create(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	sc, _ := domainscope.New("scope-1", "proj-1", "restricted", contracts.ScopeStatusActive)
+	sc.Constraints.AllowedAssetIDs = []contracts.AssetID{"asset-1"}
+	if err := sr.Create(context.Background(), sc); err != nil {
+		t.Fatal(err)
+	}
+	cp := controlplane.NewService(identity.NewService(pr), scope.NewService(sr))
+	issuer := NewIssuer(5 * time.Minute)
+	brk := New(mock.New())
+
+	_, _, err := issuer.IssueAfterEvaluate(context.Background(), cp, controlplane.EvaluateRequest{
+		PrincipalID: "user-1", ProjectID: "proj-1", ScopeID: "scope-1",
+		CapabilityID: "cap-1", TaskID: "task-1",
+	})
+	if err == nil {
+		t.Fatal("restricted scope must reject a grant without asset_id")
+	}
+
+	g, d, err := issuer.IssueAfterEvaluateWith(context.Background(), cp, controlplane.EvaluateRequest{
+		PrincipalID: "user-1", ProjectID: "proj-1", ScopeID: "scope-1",
+		TaskID: "task-1", CapabilityID: "cap-1", AssetID: "asset-1",
+	}, contracts.ExecutionGrantConstraints{
+		AllowedAssetIDs: []contracts.AssetID{"asset-1"},
+		AllowedTargets:  []string{"portal.example.test"},
+	})
+	if err != nil || !d.Allowed() {
+		t.Fatalf("allowed asset should receive grant: decision=%+v err=%v", d, err)
+	}
+	if _, err := brk.Execute(contracts.ExecutionRequest{
+		Grant: g.ExecutionGrant, Parameters: map[string]any{"target": "attacker.example.test"},
+	}); !errors.Is(err, contracts.ErrGrantInvalid) {
+		t.Fatalf("altered execution target must be rejected before claim, got %v", err)
+	}
+	if _, err := brk.Execute(contracts.ExecutionRequest{
+		Grant: g.ExecutionGrant, Parameters: map[string]any{"target": "portal.example.test"},
+	}); err != nil {
+		t.Fatalf("canonical signed target should execute: %v", err)
+	}
+}
+
 func TestNoGrantNoExecution(t *testing.T) {
 	_, brk, _ := setup(t)
 	_, err := brk.Execute(contracts.ExecutionRequest{})

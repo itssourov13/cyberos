@@ -64,7 +64,7 @@ export function AssignmentsPage() {
               rowKey={(a) => a.id}
               columns={[
                 { key: 'id', header: 'Assignment', render: (a) => <span className="cell-id">{a.id}</span> },
-                { key: 'task', header: 'Task', render: (a) => <span className="cell-id">{a.taskId}</span> },
+                { key: 'task', header: 'Execution', render: (a) => <span className="cell-id">{a.taskId}</span> },
                 { key: 'worker', header: 'Worker', render: (a) => <span className="cell-id">{a.workerId}</span> },
                 { key: 'state', header: 'State', sort: (a) => a.state, render: (a) => <AssignmentStateBadge state={a.state} /> },
                 { key: 'lease', header: 'Lease', sort: (a) => a.leaseExpires, render: (a) => <span className="muted">{relTime(a.leaseExpires)}</span> },

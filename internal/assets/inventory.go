@@ -6,7 +6,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -59,15 +61,39 @@ func (inv *Inventory) UpsertTarget(projectID contracts.ProjectID, target string,
 		typ = inferType(target)
 	}
 	key := string(projectID) + "|" + strings.ToLower(target)
+	id := contracts.AssetID("asset-" + shortHash(key))
+	if inv.assetsR != nil {
+		// The durable repository is authoritative across API replicas. Resolve
+		// the deterministic asset ID before creating, avoiding stale local value
+		// indexes and duplicate assets after another replica has ingested it.
+		existing, err := inv.assetsR.GetByID(context.Background(), id)
+		if err == nil {
+			existing.UpdatedAt = time.Now().UTC()
+			if err := inv.assetsR.Upsert(context.Background(), existing); err != nil {
+				return nil, fmt.Errorf("update existing asset: %w", err)
+			}
+			return existing, nil
+		}
+		if !errors.Is(err, contracts.ErrNotFound) {
+			return nil, fmt.Errorf("resolve existing asset: %w", err)
+		}
+		a, err := domainasset.New(id, projectID, typ, target, target)
+		if err != nil {
+			return nil, err
+		}
+		if err := inv.assetsR.Upsert(context.Background(), a); err != nil {
+			return nil, fmt.Errorf("persist new asset: %w", err)
+		}
+		return a, nil
+	}
 	inv.mu.Lock()
 	defer inv.mu.Unlock()
-	if id, ok := inv.byValue[key]; ok {
-		a := inv.assets[id]
+	if existingID, ok := inv.byValue[key]; ok {
+		a := inv.assets[existingID]
 		a.UpdatedAt = time.Now().UTC()
 		cp := *a
 		return &cp, nil
 	}
-	id := contracts.AssetID("asset-" + shortHash(key))
 	a, err := domainasset.New(id, projectID, typ, target, target)
 	if err != nil {
 		return nil, err
@@ -75,18 +101,17 @@ func (inv *Inventory) UpsertTarget(projectID contracts.ProjectID, target string,
 	inv.assets[id] = a
 	inv.byValue[key] = id
 	cp := *a
-	if inv.assetsR != nil {
-		if err := inv.assetsR.Upsert(context.Background(), &cp); err != nil {
-			delete(inv.assets, id)
-			delete(inv.byValue, key)
-			return nil, err
-		}
-	}
 	return &cp, nil
 }
 
 // Get returns an asset by id.
 func (inv *Inventory) Get(id contracts.AssetID) (*domainasset.Asset, error) {
+	if inv == nil {
+		return nil, contracts.ErrInvalidArgument
+	}
+	if inv.assetsR != nil {
+		return inv.assetsR.GetByID(context.Background(), id)
+	}
 	inv.mu.RLock()
 	a, ok := inv.assets[id]
 	if ok {
@@ -95,14 +120,73 @@ func (inv *Inventory) Get(id contracts.AssetID) (*domainasset.Asset, error) {
 		return &cp, nil
 	}
 	inv.mu.RUnlock()
-	if inv.assetsR != nil {
-		return inv.assetsR.GetByID(context.Background(), id)
-	}
 	return nil, contracts.ErrNotFound
 }
 
-// ListByProject returns assets for a project.
-func (inv *Inventory) ListByProject(projectID contracts.ProjectID) []*domainasset.Asset {
+// GetByValue resolves a canonical project asset by its exact value. It checks
+// the in-memory index first, then pages the durable repository so authorization
+// does not depend on which assets happened to be loaded into this process.
+func (inv *Inventory) GetByValue(projectID contracts.ProjectID, value string) (*domainasset.Asset, error) {
+	value = strings.TrimSpace(value)
+	if projectID == "" || value == "" {
+		return nil, fmt.Errorf("%w: project and asset value required", contracts.ErrInvalidArgument)
+	}
+	key := string(projectID) + "|" + strings.ToLower(value)
+	inv.mu.RLock()
+	repo := inv.assetsR
+	if repo == nil {
+		if id, ok := inv.byValue[key]; ok {
+			if a, exists := inv.assets[id]; exists {
+				cp := *a
+				inv.mu.RUnlock()
+				return &cp, nil
+			}
+		}
+	}
+	inv.mu.RUnlock()
+	if repo == nil {
+		return nil, contracts.ErrNotFound
+	}
+	const pageSize = 250
+	var found *domainasset.Asset
+	for offset := 0; ; offset += pageSize {
+		rows, err := repo.ListByProject(context.Background(), projectID, pageSize, offset)
+		if err != nil {
+			return nil, err
+		}
+		for _, a := range rows {
+			if a == nil || !strings.EqualFold(strings.TrimSpace(a.Value), value) {
+				continue
+			}
+			if found != nil && found.ID != a.ID {
+				return nil, fmt.Errorf("%w: asset value is ambiguous in project", contracts.ErrConflict)
+			}
+			cp := *a
+			found = &cp
+		}
+		if len(rows) < pageSize {
+			break
+		}
+	}
+	if found == nil {
+		return nil, contracts.ErrNotFound
+	}
+	inv.mu.Lock()
+	inv.assets[found.ID] = found
+	inv.byValue[key] = found.ID
+	inv.mu.Unlock()
+	return found, nil
+}
+
+// ListByProjectPage returns an authoritative bounded project page. Durable
+// deployments query PostgreSQL rather than relying on a cold process cache.
+func (inv *Inventory) ListByProjectPage(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]*domainasset.Asset, error) {
+	if inv == nil || projectID == "" || limit < 1 || limit > 500 || offset < 0 {
+		return nil, contracts.ErrInvalidArgument
+	}
+	if inv.assetsR != nil {
+		return inv.assetsR.ListByProject(ctx, projectID, limit, offset)
+	}
 	inv.mu.RLock()
 	defer inv.mu.RUnlock()
 	var out []*domainasset.Asset
@@ -112,6 +196,25 @@ func (inv *Inventory) ListByProject(projectID contracts.ProjectID) []*domainasse
 			out = append(out, &cp)
 		}
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+	if offset >= len(out) {
+		return []*domainasset.Asset{}, nil
+	}
+	out = out[offset:]
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// ListByProject preserves the legacy development/test API.
+func (inv *Inventory) ListByProject(projectID contracts.ProjectID) []*domainasset.Asset {
+	out, _ := inv.ListByProjectPage(context.Background(), projectID, 500, 0)
 	return out
 }
 
@@ -274,7 +377,9 @@ func (inv *Inventory) IngestFromResult(
 	o.ToolID = result.ToolID
 	o.CapabilityID = contracts.CapabilityID(result.Capability)
 	o.Detail = summary
-	_ = inv.RecordObservation(o)
+	if err := inv.RecordObservation(o); err != nil {
+		return a, nil, fmt.Errorf("persist asset observation: %w", err)
+	}
 	obs = append(obs, o)
 
 	// Optional endpoint from findings detail like "22/tcp"
@@ -285,7 +390,9 @@ func (inv *Inventory) IngestFromResult(
 				ep := &domainasset.ServiceEndpoint{
 					AssetID: a.ID, ProjectID: projectID, Protocol: proto, Port: port, Banner: h.Title,
 				}
-				_, _ = inv.UpsertEndpoint(ep)
+				if _, err := inv.UpsertEndpoint(ep); err != nil {
+					return a, obs, fmt.Errorf("persist service endpoint: %w", err)
+				}
 			}
 		}
 	}

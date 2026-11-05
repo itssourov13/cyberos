@@ -15,6 +15,7 @@ import (
 type Store struct {
 	mu      sync.Mutex
 	backend Backend
+	hub     *Hub
 }
 
 // NewStore constructs a store with an in-memory backend.
@@ -32,6 +33,18 @@ func (s *Store) WithBackend(b Backend) *Store {
 	if b != nil {
 		s.backend = b
 	}
+	return s
+}
+
+// WithHub publishes committed events to live SSE subscribers. Persistence always
+// happens before publication; a failed append is never broadcast as committed.
+func (s *Store) WithHub(h *Hub) *Store {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	s.hub = h
+	s.mu.Unlock()
 	return s
 }
 
@@ -80,6 +93,9 @@ func (s *Store) Append(req AppendRequest) (contracts.EventEnvelope, error) {
 	defer s.mu.Unlock()
 	if err := s.backend.Append(env); err != nil {
 		return contracts.EventEnvelope{}, err
+	}
+	if s.hub != nil {
+		s.hub.Publish(env)
 	}
 	return env, nil
 }

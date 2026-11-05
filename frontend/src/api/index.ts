@@ -1,15 +1,17 @@
 import { createContext, createElement, useContext, type ReactNode } from 'react'
 import type { CyberosApi } from './client'
+import { liveApi } from './live'
 import { previewApi } from './preview'
 
 export { ApiError } from './client'
 export type { CyberosApi } from './client'
 
 /**
- * Phase 24D swaps this single line for the live `/api/v1` adapter.
- * Until then the console runs on the preview adapter and says so everywhere.
+ * Live is the default. Preview fixtures are used only when explicitly
+ * selected at build/dev time with `VITE_CYBEROS_API_MODE=preview`; a failing
+ * backend never silently degrades to fixtures.
  */
-const defaultApi: CyberosApi = previewApi
+const defaultApi: CyberosApi = import.meta.env.VITE_CYBEROS_API_MODE === 'preview' ? previewApi : liveApi
 
 const ApiContext = createContext<CyberosApi>(defaultApi)
 

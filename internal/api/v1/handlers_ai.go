@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"cyberos/internal/ai"
+	"cyberos/internal/auth"
 	"cyberos/internal/contracts"
 )
 
@@ -20,6 +21,9 @@ func (s *Server) handleAIAnalyze(w http.ResponseWriter, r *http.Request) {
 	}
 	s.limitBody(w, r)
 	if !s.limitRequest(w, r, "ai") {
+		return
+	}
+	if !s.requirePermission(w, r, auth.PermWrite) {
 		return
 	}
 	var req ai.BrainRequest
@@ -52,6 +56,9 @@ func (s *Server) handleAIPlan(w http.ResponseWriter, r *http.Request) {
 	if !s.limitRequest(w, r, "ai") {
 		return
 	}
+	if !s.requirePermission(w, r, auth.PermWrite) {
+		return
+	}
 	var req ai.BrainRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
@@ -82,6 +89,9 @@ func (s *Server) handleAIApply(w http.ResponseWriter, r *http.Request) {
 	if !s.limitRequest(w, r, "ai") {
 		return
 	}
+	if !s.requirePermission(w, r, auth.PermWrite) {
+		return
+	}
 	var body struct {
 		Plan ai.Plan `json:"plan"`
 	}
@@ -92,9 +102,16 @@ func (s *Server) handleAIApply(w http.ResponseWriter, r *http.Request) {
 	if !enforceProject(w, r, body.Plan.ProjectID) {
 		return
 	}
+	if !s.requirePermission(w, r, auth.PermExecute) {
+		return
+	}
+	if !s.scopeBelongsToProject(body.Plan.ProjectID, body.Plan.ScopeID) {
+		writeErr(w, http.StatusBadRequest, "scope does not belong to project")
+		return
+	}
 	def, err := s.SDK.ApplyPlan(r.Context(), body.Plan)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(w, statusForErr(err), publicErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

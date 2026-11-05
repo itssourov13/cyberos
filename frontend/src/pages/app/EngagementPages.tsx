@@ -14,8 +14,8 @@ const scopeCols = (showProject: boolean): Column<Scope>[] => [
   { key: 'name', header: 'Scope', sort: (s) => s.name, render: (s) => <strong>{s.name}</strong> },
   ...(showProject ? [{ key: 'project', header: 'Project', render: (s: Scope) => <Link className="link mono" to={`/app/projects/${s.projectId}`}>{s.projectId}</Link> }] : []),
   { key: 'kind', header: 'Kind', render: (s) => <span className="chip">{s.kind}</span> },
-  { key: 'targets', header: 'Targets', render: (s) => <span className="mono dim">{s.targets.join(', ')}</span> },
-  { key: 'window', header: 'Window', render: (s) => <span className="muted nowrap">{fmtDateTime(s.window.from)} → {fmtDateTime(s.window.to)}</span> },
+  { key: 'targets', header: 'Targets', render: (s) => <span className="mono dim">{s.targets.length ? s.targets.join(', ') : '—'}</span> },
+  { key: 'window', header: 'Window', render: (s) => <span className="muted nowrap">{s.window.from ? fmtDateTime(s.window.from) : 'open'} → {s.window.to ? fmtDateTime(s.window.to) : 'open'}</span> },
   { key: 'status', header: 'Status', sort: (s) => s.status, render: (s) => <ScopeStatusBadge status={s.status} /> },
 ]
 

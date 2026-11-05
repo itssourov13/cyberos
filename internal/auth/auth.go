@@ -30,6 +30,7 @@ type Identity struct {
 	Principal contracts.PrincipalRef
 	TenantID  contracts.TenantID // may be empty for legacy/single-tenant
 	APIKeyID  string
+	Role      Role // tenant-scoped permission level; empty = analyst (legacy keys)
 }
 
 // Authenticator verifies credentials and returns an Identity.
@@ -45,6 +46,7 @@ type APIKey struct {
 	Hash        string // sha256 hex of secret
 	PrincipalID contracts.PrincipalID
 	TenantID    contracts.TenantID
+	Role        Role
 	Active      bool
 	ExpiresAt   *time.Time
 	CreatedAt   time.Time
@@ -57,6 +59,8 @@ type KeyStore interface {
 	Revoke(ctx context.Context, id string) error
 	// CountActive returns the number of active (non-revoked) keys.
 	CountActive(ctx context.Context) (int, error)
+	// CountActiveOperators counts active platform operator keys only.
+	CountActiveOperators(ctx context.Context) (int, error)
 }
 
 // MemoryKeyStore is an in-process API key store.
@@ -104,6 +108,18 @@ func (s *MemoryKeyStore) CountActive(_ context.Context) (int, error) {
 	return n, nil
 }
 
+func (s *MemoryKeyStore) CountActiveOperators(_ context.Context) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	n := 0
+	for _, k := range s.byID {
+		if k.Active && k.TenantID == "" && ParseRole(string(k.Role)) == RoleOperator {
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (s *MemoryKeyStore) Revoke(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -127,10 +143,30 @@ func NewAPIKeyAuthenticator(store KeyStore) *APIKeyAuthenticator {
 	return &APIKeyAuthenticator{Store: store, Now: func() time.Time { return time.Now().UTC() }}
 }
 
-// Issue creates a new API key and returns the plaintext secret once.
+// Issue creates a new API key and returns the plaintext secret once. Tenant
+// keys issued this way are analysts; use IssueWithRole for other levels.
 func (a *APIKeyAuthenticator) Issue(ctx context.Context, principalID contracts.PrincipalID, tenantID contracts.TenantID, ttl time.Duration) (plaintext string, key APIKey, err error) {
+	role := RoleAnalyst
+	if tenantID == "" {
+		role = RoleOperator
+	}
+	return a.IssueWithRole(ctx, principalID, tenantID, role, ttl)
+}
+
+// IssueWithRole issues a key with an explicit role. A tenant-less key is the
+// platform operator and a tenant-scoped key can never be an operator.
+func (a *APIKeyAuthenticator) IssueWithRole(ctx context.Context, principalID contracts.PrincipalID, tenantID contracts.TenantID, role Role, ttl time.Duration) (plaintext string, key APIKey, err error) {
 	if principalID == "" {
 		return "", APIKey{}, fmt.Errorf("%w: principal required", contracts.ErrInvalidArgument)
+	}
+	if !ValidRole(string(role)) {
+		return "", APIKey{}, fmt.Errorf("%w: unknown role %q", contracts.ErrInvalidArgument, role)
+	}
+	if tenantID != "" && role == RoleOperator {
+		return "", APIKey{}, fmt.Errorf("%w: a tenant-scoped key cannot be an operator", contracts.ErrInvalidArgument)
+	}
+	if tenantID == "" && role != RoleOperator {
+		return "", APIKey{}, fmt.Errorf("%w: a tenant-less key is the platform operator", contracts.ErrInvalidArgument)
 	}
 	secret, err := randomHex(24)
 	if err != nil {
@@ -141,7 +177,7 @@ func (a *APIKeyAuthenticator) Issue(ctx context.Context, principalID contracts.P
 	sum := sha256.Sum256([]byte(full))
 	key = APIKey{
 		ID: "key-" + prefix, Prefix: prefix, Hash: hex.EncodeToString(sum[:]),
-		PrincipalID: principalID, TenantID: tenantID, Active: true, CreatedAt: a.Now(),
+		PrincipalID: principalID, TenantID: tenantID, Role: role, Active: true, CreatedAt: a.Now(),
 	}
 	if ttl > 0 {
 		exp := a.Now().Add(ttl)
@@ -180,10 +216,16 @@ func (a *APIKeyAuthenticator) Authenticate(ctx context.Context, credential strin
 	if hex.EncodeToString(sum[:]) != key.Hash {
 		return Identity{}, fmt.Errorf("%w: invalid credentials", contracts.ErrForbidden)
 	}
+	if !ValidRole(string(key.Role)) ||
+		(key.TenantID == "" && key.Role != RoleOperator) ||
+		(key.TenantID != "" && key.Role == RoleOperator) {
+		return Identity{}, fmt.Errorf("%w: invalid credential role binding", contracts.ErrForbidden)
+	}
 	return Identity{
 		Principal: contracts.PrincipalRef{ID: key.PrincipalID, Type: contracts.PrincipalTypeHuman},
 		TenantID:  key.TenantID,
 		APIKeyID:  key.ID,
+		Role:      key.Role,
 	}, nil
 }
 
@@ -194,9 +236,15 @@ func (a *APIKeyAuthenticator) EnsureBootstrap(ctx context.Context, bootstrapPlai
 		return "", false, fmt.Errorf("%w: authenticator not configured", contracts.ErrInvalidArgument)
 	}
 	if bootstrapPlain != "" {
+		if tenantID != "" {
+			return "", false, fmt.Errorf("%w: bootstrap credential must be platform-wide", contracts.ErrInvalidArgument)
+		}
 		bootstrapPlain = strings.TrimSpace(bootstrapPlain)
 		// If already valid, do not re-issue.
-		if _, aerr := a.Authenticate(ctx, bootstrapPlain); aerr == nil {
+		if identity, aerr := a.Authenticate(ctx, bootstrapPlain); aerr == nil {
+			if identity.TenantID != "" || identity.Role != RoleOperator || identity.Principal.ID != "bootstrap" {
+				return "", false, fmt.Errorf("%w: CYBEROS_BOOTSTRAP_API_KEY must belong to the bootstrap principal and have platform operator role", contracts.ErrForbidden)
+			}
 			return "", false, nil
 		}
 		if !strings.HasPrefix(bootstrapPlain, "cos_") || len(bootstrapPlain) < 12 {
@@ -206,18 +254,21 @@ func (a *APIKeyAuthenticator) EnsureBootstrap(ctx context.Context, bootstrapPlai
 		sum := sha256.Sum256([]byte(bootstrapPlain))
 		key := APIKey{
 			ID: "key-bootstrap-env", Prefix: prefix, Hash: hex.EncodeToString(sum[:]),
-			PrincipalID: "bootstrap", TenantID: tenantID, Active: true, CreatedAt: a.Now(),
+			PrincipalID: "bootstrap", TenantID: tenantID, Role: RoleOperator, Active: true, CreatedAt: a.Now(),
 		}
 		if err := a.Store.Create(ctx, key); err != nil {
 			// Conflict: try authenticate again after concurrent create
-			if _, aerr := a.Authenticate(ctx, bootstrapPlain); aerr == nil {
+			if identity, aerr := a.Authenticate(ctx, bootstrapPlain); aerr == nil {
+				if identity.TenantID != "" || identity.Role != RoleOperator || identity.Principal.ID != "bootstrap" {
+					return "", false, fmt.Errorf("%w: CYBEROS_BOOTSTRAP_API_KEY must belong to the bootstrap principal and have platform operator role", contracts.ErrForbidden)
+				}
 				return "", false, nil
 			}
 			return "", false, err
 		}
 		return "", false, nil // env key installed; do not print
 	}
-	n, err := a.Store.CountActive(ctx)
+	n, err := a.Store.CountActiveOperators(ctx)
 	if err != nil {
 		return "", false, err
 	}
@@ -244,6 +295,7 @@ func WithIdentity(ctx context.Context, id Identity) context.Context {
 	ctx = context.WithValue(ctx, keyPrincipal, id.Principal)
 	ctx = context.WithValue(ctx, keyTenant, id.TenantID)
 	ctx = context.WithValue(ctx, keyAPIKeyID, id.APIKeyID)
+	ctx = context.WithValue(ctx, ctxRoleKey{}, id.Role)
 	return ctx
 }
 

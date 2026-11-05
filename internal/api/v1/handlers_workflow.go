@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"cyberos/internal/auth"
 	"cyberos/internal/contracts"
 	"cyberos/internal/workflow"
 )
@@ -25,10 +26,10 @@ func (s *Server) GetWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	}
 	run, err := s.SDK.Workflow.Get(id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+		writeErr(w, http.StatusNotFound, "not found")
 		return
 	}
-	if !enforceProject(w, r, run.ProjectID) {
+	if !enforceObject(w, r, "", run.ProjectID) {
 		return
 	}
 	writeJSON(w, http.StatusOK, run)
@@ -54,7 +55,7 @@ func (s *Server) ListWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 	}
 	runs, err := s.SDK.Workflow.ListByProject(projectID, 100, 0)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, statusForErr(err), publicErr(err))
 		return
 	}
 	if runs == nil {
@@ -82,16 +83,30 @@ func (s *Server) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	if !s.requirePermission(w, r, auth.PermExecute) {
+		return
+	}
+	if body.Definition.ProjectID == "" {
+		writeErr(w, http.StatusBadRequest, "definition.project_id required")
+		return
+	}
 	if !enforceProject(w, r, body.Definition.ProjectID) {
+		return
+	}
+	if !s.scopeBelongsToProject(body.Definition.ProjectID, body.Definition.ScopeID) {
+		writeErr(w, http.StatusBadRequest, "scope does not belong to project")
 		return
 	}
 	principal, ok := s.bindPrincipal(w, r, body.PrincipalID)
 	if !ok {
 		return
 	}
+	if principal == "" {
+		principal = s.actorID(r)
+	}
 	run, err := s.SDK.StartWorkflow(r.Context(), body.Definition, principal, body.RunID)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(w, statusForErr(err), publicErr(err))
 		return
 	}
 	writeJSON(w, http.StatusCreated, run)
@@ -117,15 +132,24 @@ func (s *Server) AdvanceWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	}
 	run, err := s.SDK.GetWorkflowRun(id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+		writeErr(w, http.StatusNotFound, "not found")
 		return
 	}
-	if !enforceProject(w, r, run.ProjectID) {
+	if !enforceObject(w, r, "", run.ProjectID) {
+		return
+	}
+	if !s.requirePermission(w, r, auth.PermExecute) {
+		return
+	}
+	// The supplied definition must describe THIS run; a caller must not be able to
+	// advance a run with a definition that targets another project or scope.
+	if body.Definition.ProjectID != run.ProjectID || body.Definition.ScopeID != run.ScopeID {
+		writeErr(w, http.StatusBadRequest, "definition does not match run project/scope")
 		return
 	}
 	run, err = s.SDK.AdvanceWorkflow(r.Context(), id, body.Definition)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(w, statusForErr(err), publicErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, run)
@@ -144,15 +168,18 @@ func (s *Server) CancelWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	run, err := s.SDK.GetWorkflowRun(id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+		writeErr(w, http.StatusNotFound, "not found")
 		return
 	}
-	if !enforceProject(w, r, run.ProjectID) {
+	if !enforceObject(w, r, "", run.ProjectID) {
+		return
+	}
+	if !s.requirePermission(w, r, auth.PermExecute) {
 		return
 	}
 	run, err = s.SDK.CancelWorkflow(id)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(w, statusForErr(err), publicErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, run)

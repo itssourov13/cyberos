@@ -4,6 +4,7 @@ package findings
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -93,23 +94,30 @@ func (s *Service) Create(req CreateRequest) (*domainfinding.Finding, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
 	}
-
+	cp := *f
+	if s.repo != nil {
+		_, err := s.repo.GetByID(context.Background(), cp.ID)
+		switch {
+		case err == nil:
+			return nil, contracts.ErrConflict
+		case errors.Is(err, contracts.ErrNotFound):
+			// Insert a new row below.
+		case err != nil:
+			return nil, fmt.Errorf("check existing finding: %w", err)
+		}
+		if err := s.persist(&cp); err != nil {
+			return nil, fmt.Errorf("persist new finding: %w", err)
+		}
+		return &cp, nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.items[f.ID]; exists {
 		return nil, contracts.ErrConflict
 	}
-	cp := *f
 	s.items[f.ID] = &cp
 	if cp.Fingerprint != "" {
 		s.byFingerprint[cp.Fingerprint] = &cp
-	}
-	if err := s.persist(&cp); err != nil {
-		delete(s.items, cp.ID)
-		if cp.Fingerprint != "" {
-			delete(s.byFingerprint, cp.Fingerprint)
-		}
-		return nil, err
 	}
 	return &cp, nil
 }
@@ -119,6 +127,11 @@ func (s *Service) Get(id contracts.FindingID) (*domainfinding.Finding, error) {
 	if s == nil {
 		return nil, fmt.Errorf("%w: findings service not configured", contracts.ErrInvalidArgument)
 	}
+	if s.repo != nil {
+		// PostgreSQL is authoritative in production; never return a stale
+		// process-local finding when another replica has updated it.
+		return s.repo.GetByID(context.Background(), id)
+	}
 	s.mu.RLock()
 	f, ok := s.items[id]
 	if ok {
@@ -127,9 +140,6 @@ func (s *Service) Get(id contracts.FindingID) (*domainfinding.Finding, error) {
 		return &cp, nil
 	}
 	s.mu.RUnlock()
-	if s.repo != nil {
-		return s.repo.GetByID(context.Background(), id)
-	}
 	return nil, contracts.ErrNotFound
 }
 

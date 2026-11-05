@@ -16,41 +16,41 @@ import (
 type AssignmentStatus string
 
 const (
-	AssignPending     AssignmentStatus = "PENDING"
-	AssignDispatched  AssignmentStatus = "DISPATCHED"
-	AssignClaimed     AssignmentStatus = "CLAIMED"
-	AssignRunning     AssignmentStatus = "RUNNING"
-	AssignCompleted   AssignmentStatus = "COMPLETED"
-	AssignFailed      AssignmentStatus = "FAILED"
-	AssignCancelled   AssignmentStatus = "CANCELLED"
-	AssignExpired     AssignmentStatus = "EXPIRED"
+	AssignPending    AssignmentStatus = "PENDING"
+	AssignDispatched AssignmentStatus = "DISPATCHED"
+	AssignClaimed    AssignmentStatus = "CLAIMED"
+	AssignRunning    AssignmentStatus = "RUNNING"
+	AssignCompleted  AssignmentStatus = "COMPLETED"
+	AssignFailed     AssignmentStatus = "FAILED"
+	AssignCancelled  AssignmentStatus = "CANCELLED"
+	AssignExpired    AssignmentStatus = "EXPIRED"
 )
 
 // ExecutionAssignment is durable controller-owned work for a remote worker.
 // No Grant fields are stored.
 type ExecutionAssignment struct {
-	ID            string
-	ExecutionID   string
-	WorkflowRunID string
-	ProjectID     contracts.ProjectID
-	TenantID      contracts.TenantID
-	HostID        HostID
-	WorkerID      string
-	GrantID       string
+	ID                string
+	ExecutionID       string
+	WorkflowRunID     string
+	ProjectID         contracts.ProjectID
+	TenantID          contracts.TenantID
+	HostID            HostID
+	WorkerID          string
+	GrantID           string
 	PackContentDigest string
-	Status        AssignmentStatus
-	Attempt       int
-	MaxAttempts   int
-	LeaseUntil    time.Time
-	CreatedAt     time.Time
-	DispatchedAt  time.Time
-	StartedAt     time.Time
-	CompletedAt   time.Time
-	CancelledAt   time.Time
-	ResultHash    string
-	ResultStatus  string
-	ErrorMessage  string
-	Version       int64
+	Status            AssignmentStatus
+	Attempt           int
+	MaxAttempts       int
+	LeaseUntil        time.Time
+	CreatedAt         time.Time
+	DispatchedAt      time.Time
+	StartedAt         time.Time
+	CompletedAt       time.Time
+	CancelledAt       time.Time
+	ResultHash        string
+	ResultStatus      string
+	ErrorMessage      string
+	Version           int64
 }
 
 func (a ExecutionAssignment) IsTerminal() bool {
@@ -266,6 +266,19 @@ func (s *AssignmentService) RecoverExpired(ctx context.Context, projectID contra
 
 func (s *AssignmentService) Get(ctx context.Context, projectID contracts.ProjectID, id string) (ExecutionAssignment, error) {
 	return s.get(ctx, projectID, id)
+}
+
+// List returns a project's assignments, newest first (read-only).
+func (s *AssignmentService) List(ctx context.Context, projectID contracts.ProjectID, limit int) ([]ExecutionAssignment, error) {
+	recs, err := s.repo.ListByProject(ctx, projectID, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ExecutionAssignment, 0, len(recs))
+	for _, r := range recs {
+		out = append(out, recordToAssignment(r))
+	}
+	return out, nil
 }
 
 func (s *AssignmentService) get(ctx context.Context, projectID contracts.ProjectID, id string) (ExecutionAssignment, error) {

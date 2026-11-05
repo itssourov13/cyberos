@@ -4,6 +4,7 @@ package evidence
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -92,17 +93,28 @@ func (s *Service) RecordFromExecution(
 	// Simple integrity digest over key fields (not cryptographic chain yet).
 	ev.Digest = fmt.Sprintf("sha256-stub:%s:%s:%s", ev.ID, ev.GrantID, ev.TaskID)
 
+	cp := *ev
+	if s.repo != nil {
+		_, err := s.repo.GetByID(context.Background(), ev.ID)
+		switch {
+		case err == nil:
+			return nil, contracts.ErrConflict
+		case errors.Is(err, contracts.ErrNotFound):
+			// New evidence record.
+		case err != nil:
+			return nil, fmt.Errorf("check existing evidence: %w", err)
+		}
+		if err := s.persist(&cp); err != nil {
+			return nil, fmt.Errorf("persist evidence: %w", err)
+		}
+		return &cp, nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.items[ev.ID]; exists {
 		return nil, contracts.ErrConflict
 	}
-	cp := *ev
 	s.items[ev.ID] = &cp
-	if err := s.persist(&cp); err != nil {
-		delete(s.items, ev.ID)
-		return nil, err
-	}
 	return &cp, nil
 }
 
@@ -110,6 +122,9 @@ func (s *Service) RecordFromExecution(
 func (s *Service) Get(id contracts.EvidenceID) (*domainevidence.Evidence, error) {
 	if s == nil {
 		return nil, fmt.Errorf("%w: evidence service not configured", contracts.ErrInvalidArgument)
+	}
+	if s.repo != nil {
+		return s.repo.GetByID(context.Background(), id)
 	}
 	s.mu.RLock()
 	ev, ok := s.items[id]
@@ -119,9 +134,6 @@ func (s *Service) Get(id contracts.EvidenceID) (*domainevidence.Evidence, error)
 		return &cp, nil
 	}
 	s.mu.RUnlock()
-	if s.repo != nil {
-		return s.repo.GetByID(context.Background(), id)
-	}
 	return nil, contracts.ErrNotFound
 }
 

@@ -150,3 +150,29 @@ func (r *AssignmentRepo) ClaimAtomic(ctx context.Context, projectID contracts.Pr
 	}
 	return r.Get(ctx, projectID, id)
 }
+
+// ListByProject returns the project's assignments, newest first.
+func (r *AssignmentRepo) ListByProject(ctx context.Context, projectID contracts.ProjectID, limit int) ([]ports.AssignmentRecord, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 500
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, execution_id, workflow_run_id, project_id, tenant_id, host_id, worker_id,
+			grant_id, pack_content_digest,
+			status, attempt, max_attempts, lease_until, created_at, dispatched_at, started_at,
+			completed_at, cancelled_at, result_hash, result_status, error_message, version
+		FROM execution_assignments WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2`, string(projectID), limit)
+	if err != nil {
+		return nil, fmt.Errorf("list assignments: %w", err)
+	}
+	defer rows.Close()
+	out := make([]ports.AssignmentRecord, 0)
+	for rows.Next() {
+		a, err := scanAssignment(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}

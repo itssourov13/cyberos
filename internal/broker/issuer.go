@@ -17,6 +17,13 @@ import (
 type Issuer struct {
 	// TTL is the default grant lifetime. Zero means 5 minutes.
 	TTL time.Duration
+	// Signer, when set, signs every issued grant so the Broker can prove
+	// provenance. Production wiring always sets it.
+	Signer *GrantSigner
+	// Ledger, when set, receives a record of every issued grant. Issuance fails
+	// closed if the record cannot be stored: a grant the ledger does not know
+	// about could never be claimed by the Broker anyway.
+	Ledger GrantLedger
 }
 
 // NewIssuer constructs a grant issuer.
@@ -47,7 +54,7 @@ type IssueRequest struct {
 
 // Issue creates an ExecutionGrant only if the Control Plane decision is ALLOWED.
 // Any other outcome returns ErrForbidden / ErrGrantInvalid.
-func (i *Issuer) Issue(_ context.Context, req IssueRequest) (*domaingrant.Grant, error) {
+func (i *Issuer) Issue(ctx context.Context, req IssueRequest) (*domaingrant.Grant, error) {
 	if i == nil {
 		return nil, fmt.Errorf("%w: issuer not configured", contracts.ErrInvalidArgument)
 	}
@@ -120,6 +127,24 @@ func (i *Issuer) Issue(_ context.Context, req IssueRequest) (*domaingrant.Grant,
 	if g.CorrelationID == "" {
 		g.CorrelationID = req.Decision.CorrelationID
 	}
+	if i.Signer != nil {
+		sig, err := i.Signer.Sign(g)
+		if err != nil {
+			return nil, fmt.Errorf("sign grant: %w", err)
+		}
+		g.Signature = sig
+	}
+	if i.Ledger != nil {
+		rec := GrantRecord{
+			GrantID: g.ID, Nonce: g.Nonce, PrincipalID: g.Principal.ID,
+			ProjectID: g.ProjectID, ScopeID: g.ScopeID, TaskID: g.TaskID,
+			CapabilityID: g.CapabilityID, CorrelationID: g.CorrelationID,
+			IssuedAt: g.IssuedAt, ExpiresAt: g.ExpiresAt,
+		}
+		if err := i.Ledger.Record(ctx, rec); err != nil {
+			return nil, fmt.Errorf("record issued grant: %w", err)
+		}
+	}
 	return domaingrant.NewFromContract(g)
 }
 
@@ -129,12 +154,27 @@ func (i *Issuer) IssueAfterEvaluate(
 	cp *controlplane.Service,
 	evalReq controlplane.EvaluateRequest,
 ) (*domaingrant.Grant, contracts.Decision, error) {
+	return i.IssueAfterEvaluateWith(ctx, cp, evalReq, contracts.ExecutionGrantConstraints{})
+}
+
+// IssueAfterEvaluateWith is IssueAfterEvaluate with grant constraints fixed at
+// issuance time. Constraints must be supplied here, never patched onto an
+// issued grant: the issuer signature covers them.
+func (i *Issuer) IssueAfterEvaluateWith(
+	ctx context.Context,
+	cp *controlplane.Service,
+	evalReq controlplane.EvaluateRequest,
+	constraints contracts.ExecutionGrantConstraints,
+) (*domaingrant.Grant, contracts.Decision, error) {
 	d, err := cp.Evaluate(ctx, evalReq)
 	if err != nil {
 		return nil, d, err
 	}
 	if !d.Allowed() {
 		return nil, d, fmt.Errorf("%w: %s", contracts.ErrForbidden, d.Reason)
+	}
+	if evalReq.AssetID != "" && !containsAsset(constraints.AllowedAssetIDs, evalReq.AssetID) {
+		constraints.AllowedAssetIDs = append(constraints.AllowedAssetIDs, evalReq.AssetID)
 	}
 	issueReq := IssueRequest{
 		Decision:      d,
@@ -145,6 +185,7 @@ func (i *Issuer) IssueAfterEvaluate(
 		CapabilityID:  evalReq.CapabilityID,
 		CorrelationID: evalReq.CorrelationID,
 		Now:           evalReq.Now,
+		Constraints:   constraints,
 	}
 	if evalReq.RequireTrustedPack {
 		if evalReq.EffectivePackTrust != "TRUSTED" || evalReq.PackContentDigest == "" {
@@ -155,6 +196,15 @@ func (i *Issuer) IssueAfterEvaluate(
 	}
 	g, err := i.Issue(ctx, issueReq)
 	return g, d, err
+}
+
+func containsAsset(items []contracts.AssetID, target contracts.AssetID) bool {
+	for _, item := range items {
+		if item == target {
+			return true
+		}
+	}
+	return false
 }
 
 func randomNonce(n int) (string, error) {

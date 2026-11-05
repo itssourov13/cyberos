@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -27,6 +28,8 @@ type AuthorizeStepRequest struct {
 	TaskID        contracts.TaskID
 	CapabilityID  contracts.CapabilityID
 	CorrelationID contracts.CorrelationID
+	ExecutorHint  string
+	Target        string
 }
 
 // FuncAuthorizer adapts a function (e.g. SDK IssueGrant) as StepAuthorizer.
@@ -44,15 +47,22 @@ func (a FuncAuthorizer) AuthorizeStep(ctx context.Context, req AuthorizeStepRequ
 
 // Orchestrator runs capability-driven workflows via task engine + lifecycle.
 // It never executes tools itself and never reuses grants across steps.
+type keyedRunLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
 type Orchestrator struct {
 	Materializer *Materializer
 	Engine       *taskengine.Engine
 	Lifecycle    *lifecycle.Controller
 	Authorizer   StepAuthorizer
 
-	mu   sync.RWMutex
-	runs map[string]*Run
-	repo ports.WorkflowRunRepository // optional durable
+	mu       sync.RWMutex
+	runs     map[string]*Run
+	repo     ports.WorkflowRunRepository // optional durable
+	runMu    sync.Mutex
+	runLocks map[string]*keyedRunLock
 
 	Now func() time.Time
 }
@@ -73,6 +83,7 @@ func NewOrchestrator(mat *Materializer, eng *taskengine.Engine, life *lifecycle.
 		Lifecycle:    life,
 		Authorizer:   auth,
 		runs:         make(map[string]*Run),
+		runLocks:     make(map[string]*keyedRunLock),
 		Now:          func() time.Time { return time.Now().UTC() },
 	}
 }
@@ -89,6 +100,13 @@ type StartRequest struct {
 func (o *Orchestrator) Start(ctx context.Context, req StartRequest) (*Run, error) {
 	if o == nil || o.Materializer == nil {
 		return nil, fmt.Errorf("%w: orchestrator not configured", contracts.ErrInvalidArgument)
+	}
+	if req.RunID != "" {
+		if _, err := o.Get(req.RunID); err == nil {
+			return nil, fmt.Errorf("%w: workflow run id already exists", contracts.ErrConflict)
+		} else if !errors.Is(err, contracts.ErrNotFound) {
+			return nil, fmt.Errorf("check workflow run id: %w", err)
+		}
 	}
 	mat, err := o.Materializer.Materialize(ctx, req.Definition, req.PrincipalID)
 	if err != nil {
@@ -122,31 +140,60 @@ func (o *Orchestrator) Start(ctx context.Context, req StartRequest) (*Run, error
 	if err := run.Validate(); err != nil {
 		return nil, err
 	}
+	// Serialize starts with the same run ID inside this process; the database
+	// insert-only repository call remains the cross-instance uniqueness guard.
+	unlock := o.lockRun(run.ID)
+	defer unlock()
+	if _, err := o.Get(run.ID); err == nil {
+		return nil, contracts.ErrConflict
+	} else if !errors.Is(err, contracts.ErrNotFound) {
+		return nil, fmt.Errorf("check workflow run ID: %w", err)
+	}
+	if err := o.create(run); err != nil {
+		return nil, err
+	}
 	o.mu.Lock()
 	o.runs[run.ID] = run
 	o.mu.Unlock()
-	if err := o.persist(run); err != nil {
-		return nil, err
-	}
 	return cloneRun(run), nil
 }
 
+func (o *Orchestrator) lockRun(runID string) func() {
+	o.runMu.Lock()
+	lock := o.runLocks[runID]
+	if lock == nil {
+		lock = &keyedRunLock{}
+		o.runLocks[runID] = lock
+	}
+	lock.refs++
+	o.runMu.Unlock()
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+		o.runMu.Lock()
+		lock.refs--
+		if lock.refs == 0 {
+			delete(o.runLocks, runID)
+		}
+		o.runMu.Unlock()
+	}
+}
+
 // Advance executes the next ready steps (those whose dependencies succeeded).
-// Each step gets a NEW CP→Grant decision; no grant caching.
+// Each step gets a NEW CP→Grant decision; no grant caching. Concurrent advances
+// for one run are serialized to prevent duplicate step authorization/execution.
 func (o *Orchestrator) Advance(ctx context.Context, runID string, def Definition) (*Run, error) {
 	if o == nil {
 		return nil, fmt.Errorf("%w: orchestrator not configured", contracts.ErrInvalidArgument)
 	}
-	o.mu.Lock()
-	run, ok := o.runs[runID]
-	if !ok {
-		o.mu.Unlock()
-		if _, err := o.Get(runID); err != nil {
-			return nil, err
-		}
-		o.mu.Lock()
-		run = o.runs[runID]
+	unlock := o.lockRun(runID)
+	defer unlock()
+	run, err := o.Get(runID)
+	if err != nil {
+		return nil, err
 	}
+	o.mu.Lock()
+	o.runs[runID] = run
 	if run.State == RunStateCancelled || run.State == RunStateSucceeded || run.State == RunStateFailed {
 		cp := cloneRun(run)
 		o.mu.Unlock()
@@ -187,6 +234,7 @@ func (o *Orchestrator) Advance(ctx context.Context, runID string, def Definition
 		st.State = StepRunning
 		taskID := st.TaskID
 		capID := st.CapabilityID
+		executorHint := st.ToolID
 		principal := run.PrincipalID
 		project := run.ProjectID
 		scope := run.ScopeID
@@ -194,13 +242,16 @@ func (o *Orchestrator) Advance(ctx context.Context, runID string, def Definition
 		params := step.Parameters
 		o.mu.Unlock()
 
-		if err := o.executeStep(ctx, run, step.ID, taskID, capID, principal, project, scope, corr, params); err != nil {
+		if err := o.executeStep(ctx, run, step.ID, taskID, capID, executorHint, principal, project, scope, corr, params); err != nil {
 			o.mu.Lock()
 			run.State = RunStateFailed
 			run.Error = err.Error()
 			run.FinishedAt = o.Now()
 			cp := cloneRun(run)
 			o.mu.Unlock()
+			if persistErr := o.persist(run); persistErr != nil {
+				return cp, fmt.Errorf("workflow step failed (%v) and failure state could not be persisted: %w", err, persistErr)
+			}
 			return cp, err
 		}
 	}
@@ -221,6 +272,7 @@ func (o *Orchestrator) executeStep(
 	stepID string,
 	taskID contracts.TaskID,
 	capID contracts.CapabilityID,
+	executorHint string,
 	principal contracts.PrincipalID,
 	project contracts.ProjectID,
 	scope contracts.ScopeID,
@@ -235,9 +287,19 @@ func (o *Orchestrator) executeStep(
 	}
 
 	// Fresh authorization every attempt — never reuse prior step grants.
+	target := ""
+	if raw, ok := params["target"].(string); ok {
+		target = raw
+	}
+	if target == "" {
+		if raw, ok := params["url"].(string); ok {
+			target = raw
+		}
+	}
 	grant, err := o.Authorizer.AuthorizeStep(ctx, AuthorizeStepRequest{
 		PrincipalID: principal, ProjectID: project, ScopeID: scope,
 		TaskID: taskID, CapabilityID: capID, CorrelationID: corr,
+		ExecutorHint: executorHint, Target: target,
 	})
 	if err != nil {
 		o.mu.Lock()
@@ -327,16 +389,11 @@ func (o *Orchestrator) recomputeRunState(run *Run, def Definition) {
 	}
 }
 
-// Get returns a copy of a run (memory, then durable).
+// Get returns a copy of the authoritative durable run when configured.
 func (o *Orchestrator) Get(runID string) (*Run, error) {
-	o.mu.RLock()
-	r, ok := o.runs[runID]
-	if ok {
-		cp := cloneRun(r)
-		o.mu.RUnlock()
-		return cp, nil
+	if o == nil || runID == "" {
+		return nil, contracts.ErrInvalidArgument
 	}
-	o.mu.RUnlock()
 	if o.repo != nil {
 		rec, err := o.repo.GetByID(context.Background(), runID)
 		if err != nil {
@@ -351,6 +408,14 @@ func (o *Orchestrator) Get(runID string) (*Run, error) {
 		o.mu.Unlock()
 		return cloneRun(run), nil
 	}
+	o.mu.RLock()
+	r, ok := o.runs[runID]
+	if ok {
+		cp := cloneRun(r)
+		o.mu.RUnlock()
+		return cp, nil
+	}
+	o.mu.RUnlock()
 	return nil, contracts.ErrNotFound
 }
 
@@ -384,17 +449,17 @@ func (o *Orchestrator) ListByProject(projectID contracts.ProjectID, limit, offse
 
 // Cancel marks the run and remaining steps cancelled (orchestration only).
 func (o *Orchestrator) Cancel(runID string) (*Run, error) {
-	o.mu.Lock()
-	r, ok := o.runs[runID]
-	if !ok {
-		o.mu.Unlock()
-		// try durable load
-		if _, err := o.Get(runID); err != nil {
-			return nil, err
-		}
-		o.mu.Lock()
-		r = o.runs[runID]
+	if o == nil || runID == "" {
+		return nil, contracts.ErrInvalidArgument
 	}
+	unlock := o.lockRun(runID)
+	defer unlock()
+	r, err := o.Get(runID)
+	if err != nil {
+		return nil, err
+	}
+	o.mu.Lock()
+	r = o.runs[runID]
 	if r.State == RunStateSucceeded || r.State == RunStateFailed {
 		cp := cloneRun(r)
 		o.mu.Unlock()
@@ -413,6 +478,20 @@ func (o *Orchestrator) Cancel(runID string) (*Run, error) {
 		return cp, err
 	}
 	return cp, nil
+}
+
+func (o *Orchestrator) create(run *Run) error {
+	if o == nil || run == nil {
+		return contracts.ErrInvalidArgument
+	}
+	if o.repo == nil {
+		return nil
+	}
+	rec, err := runToRecord(run)
+	if err != nil {
+		return err
+	}
+	return o.repo.Create(context.Background(), rec)
 }
 
 func (o *Orchestrator) persist(run *Run) error {

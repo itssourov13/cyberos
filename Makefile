@@ -10,7 +10,7 @@ LDFLAGS     := -X cyberos/pkg/version.Version=0.0.0-foundation \
                -X cyberos/pkg/version.Commit=$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown) \
                -X cyberos/pkg/version.BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
-.PHONY: all build run version test test-unit clean fmt vet mod-tidy help
+.PHONY: all build run version test test-unit clean fmt vet mod-tidy help web web-check release
 
 all: build
 
@@ -23,6 +23,18 @@ run: build
 
 version: build
 	./$(BINARY) version
+
+# Build the Vite frontend and copy it into the Go embed directory.
+web:
+	cd frontend && npm ci && npm run build
+	find internal/api/v1/static -mindepth 1 ! -name PLACEHOLDER -delete
+	cp -r frontend/dist/. internal/api/v1/static/
+
+web-check:
+	cd frontend && npm run typecheck && npm run lint
+
+# Reproducible production binary: frontend embedded.
+release: web build
 
 test:
 	$(GO) test ./...

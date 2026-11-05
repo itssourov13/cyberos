@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -153,11 +154,37 @@ func TestIdempotentRetryDoesNotDuplicate(t *testing.T) {
 	if out1.Record.ID != out2.Record.ID {
 		t.Fatalf("idempotent should return same record %s vs %s", out1.Record.ID, out2.Record.ID)
 	}
+	if out1.Evidence == nil || out2.Evidence == nil || *out1.Evidence != *out2.Evidence {
+		t.Fatalf("idempotent retry must retain the evidence link: first=%v second=%v", out1.Evidence, out2.Evidence)
+	}
 	// Durable read-through after clearing memory
 	ctrl.records = map[contracts.ExecutionID]*contracts.ExecutionRecord{}
 	got, err := ctrl.Get(out1.Record.ID)
 	if err != nil || got.ID != out1.Record.ID {
 		t.Fatal(err, got)
+	}
+}
+
+func TestStartedIdempotencyRecordBlocksRetry(t *testing.T) {
+	repo := &memExecRepo{}
+	g := sampleGrant()
+	g.Nonce = "started-idempotency-nonce"
+	if err := repo.Upsert(context.Background(), contracts.ExecutionRecord{
+		ID: "execution-in-flight", State: contracts.ExecutionLifecycleStarted,
+		TaskID: g.TaskID, GrantID: g.ID, Principal: g.Principal,
+		ProjectID: g.ProjectID, ScopeID: g.ScopeID, CapabilityID: g.CapabilityID,
+		Attempt: 1, StartedAt: time.Now().UTC(), IdempotencyKey: "workflow-1:step-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ctrl := New(broker.New(sandbox.New(mock.New())),
+		WithEvidence(evidence.NewService()), WithRepository(repo))
+	_, err := ctrl.Run(RunRequest{Grant: g, IdempotencyKey: "workflow-1:step-1"})
+	if !errors.Is(err, contracts.ErrConflict) {
+		t.Fatalf("uncertain STARTED execution must block retry, got %v", err)
+	}
+	if len(repo.m) != 1 {
+		t.Fatalf("retry created another execution record: %d", len(repo.m))
 	}
 }
 

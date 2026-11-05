@@ -25,8 +25,9 @@ export interface Scope {
   id: string
   projectId: string
   name: string
-  kind: 'domain' | 'cidr' | 'repo' | 'cloud-account' | 'host'
+  kind: string
   targets: string[]
+  /** Empty string = the backend recorded no bound. */
   window: { from: string; to: string }
   status: 'in-window' | 'scheduled' | 'expired'
 }
@@ -62,6 +63,8 @@ export interface SpineRequest {
   scopeId: string
   capability: string
   target: string
+  /** Optional task the request is made for (live backend). */
+  taskId?: string
 }
 
 export interface SpineTrace {
@@ -112,8 +115,9 @@ export interface Asset {
   id: string
   name: string
   kind: string
-  exposure: 'internet' | 'internal' | 'restricted'
-  riskScore: number
+  exposure: 'internet' | 'internal' | 'restricted' | 'unknown'
+  /** null = the backend has not scored this asset. */
+  riskScore: number | null
 }
 
 export interface Finding {
@@ -160,11 +164,12 @@ export interface DashboardSummary {
   projects: number
   activeScopes: number
   openFindings: number
-  grantsIssued24h: number
-  denials24h: number
-  workersOnline: number
-  workersTotal: number
-  executionsPerHour: number[]
+  /** null = the backend does not expose this aggregate (live mode never invents it). */
+  grantsIssued24h: number | null
+  denials24h: number | null
+  workersOnline: number | null
+  workersTotal: number | null
+  executionsPerHour: number[] | null
   severityMix: Record<Severity, number>
 }
 

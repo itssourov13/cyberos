@@ -144,7 +144,7 @@ func (r *ScopeRepo) ListAll(ctx context.Context, limit, offset int) ([]*scope.Sc
 	}
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, project_id, name, status, starts_at, expires_at, constraints, created_at, updated_at, metadata
-		FROM scopes ORDER BY created_at DESC LIMIT $1 OFFSET $2`, limit, offset)
+		FROM scopes ORDER BY created_at DESC, id ASC LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		return nil, err
 	}

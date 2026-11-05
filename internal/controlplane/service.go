@@ -91,6 +91,9 @@ func (s *Service) Evaluate(ctx context.Context, req EvaluateRequest) (contracts.
 	if err := scope.EnsureSameProject(sc, req.ProjectID); err != nil && req.ProjectID != "" {
 		return s.deny(base, fmt.Sprintf("scope project mismatch: %v", err), nil, nil, nil, nil), nil
 	}
+	if len(sc.Constraints.AllowedAssetIDs) > 0 && req.AssetID == "" {
+		return s.deny(base, "asset_id is required by this scope", nil, nil, nil, nil), nil
+	}
 	if req.AssetID != "" {
 		if err := s.scopes.EnsureAllowsAsset(sc, req.AssetID); err != nil {
 			return s.deny(base, fmt.Sprintf("asset outside scope: %v", err), nil, nil, nil, nil), nil

@@ -52,6 +52,8 @@ Console (`/app/...`): dashboard, projects, projects/:id, scopes, tasks, assessme
 - Sign-in is **not** implemented: fields are disabled and no session is created. "Continue to preview console" just navigates.
 - Preview mode is signalled by a topbar chip and a persistent banner; simulated traces are labelled.
 
+> **Phase 24D update:** a live adapter (`api/live.ts`) is now the default and preview data is opt-in via `VITE_CYBEROS_API_MODE=preview`. See `docs/PHASE24D.md`. Phase 24C is accepted.
+
 ## Preview-only derivations (replace in Phase 24D)
 
 | View | Currently derived from |

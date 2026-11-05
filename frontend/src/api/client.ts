@@ -18,11 +18,13 @@ import type {
 
 /** Every failure surfaces as a typed, fail-closed error. */
 export class ApiError extends Error {
-  readonly code: 'unavailable' | 'unauthenticated' | 'forbidden' | 'invalid' | 'not-found' | 'unknown'
-  constructor(code: ApiError['code'], message: string) {
+  readonly code: 'unavailable' | 'timeout' | 'unauthenticated' | 'forbidden' | 'invalid' | 'not-found' | 'conflict' | 'rate-limited' | 'server' | 'unsupported' | 'unknown'
+  readonly status?: number
+  constructor(code: ApiError['code'], message: string, status?: number) {
     super(message)
     this.name = 'ApiError'
     this.code = code
+    this.status = status
   }
 }
 
@@ -44,6 +46,9 @@ export interface CyberosApi {
   projects(): Promise<Project[]>
   scopes(projectId?: string): Promise<Scope[]>
   tasks(projectId?: string): Promise<Task[]>
+
+  /** Capability ids the control plane knows about. */
+  capabilities(): Promise<string[]>
 
   /** Ask the control plane to evaluate and (if allowed) run a request. */
   submitSpineRequest(req: SpineRequest): Promise<SpineTrace>

@@ -17,6 +17,7 @@ import (
 
 func TestAPI_CrossProjectFindingGetDenied(t *testing.T) {
 	client := sdk.NewInMemory()
+	client.Catalog.UpsertProject(sdk.ProjectView{ID: "proj-a", Name: "proj-a", TenantID: "tenant-b"})
 	if _, err := client.Findings.Create(findings.CreateRequest{
 		ID: "f-iso-1", TaskID: "t1", ProjectID: "proj-a", ScopeID: "scope-a",
 		Severity: contracts.FindingSeverityHigh, Title: "secret",
@@ -77,6 +78,7 @@ func TestAPI_CrossTenantCaseGetDenied(t *testing.T) {
 
 func TestAPI_ListRequiresProjectForTenant(t *testing.T) {
 	client := sdk.NewInMemory()
+	client.Catalog.UpsertProject(sdk.ProjectView{ID: "proj-a", Name: "proj-a", TenantID: "tenant-a"})
 	store := auth.NewMemoryKeyStore()
 	a := auth.NewAPIKeyAuthenticator(store)
 	plain, _, err := a.Issue(context.Background(), "user-a", "tenant-a", time.Hour)

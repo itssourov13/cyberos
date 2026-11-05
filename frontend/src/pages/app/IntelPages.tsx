@@ -15,9 +15,9 @@ interface RiskRow {
   score: number
 }
 
-const exposureTone = { internet: 'danger', internal: 'info', restricted: 'trust' } as const
+const exposureTone = { internet: 'danger', internal: 'info', restricted: 'trust', unknown: 'neutral' } as const
 const SEV_WEIGHT: Record<Severity, number> = { critical: 100, high: 75, medium: 45, low: 20, info: 5 }
-const EXPO_WEIGHT = { internet: 1, internal: 0.7, restricted: 0.5 } as const
+const EXPO_WEIGHT = { internet: 1, internal: 0.7, restricted: 0.5, unknown: 0.7 } as const
 
 export function AssetsPage() {
   const api = useApi()
@@ -36,7 +36,7 @@ export function AssetsPage() {
                 { key: 'name', header: 'Asset', sort: (a) => a.name, render: (a) => <strong className="mono">{a.name}</strong> },
                 { key: 'kind', header: 'Kind', sort: (a) => a.kind, render: (a) => <span className="dim">{a.kind}</span> },
                 { key: 'exp', header: 'Exposure', sort: (a) => a.exposure, render: (a) => <Badge tone={exposureTone[a.exposure]} dot>{a.exposure}</Badge> },
-                { key: 'risk', header: 'Risk', sort: (a) => a.riskScore, render: (a) => <div className="row" style={{ gap: 10, minWidth: 140 }}><span className="score" style={{ width: 28 }}>{a.riskScore}</span><div className="grow"><Meter value={a.riskScore / 100} tone={a.riskScore >= 70 ? 'danger' : a.riskScore >= 40 ? 'warn' : undefined} /></div></div> },
+                { key: 'risk', header: 'Risk', sort: (a) => a.riskScore ?? -1, render: (a) => a.riskScore === null ? <span className="muted">Not scored</span> : <div className="row" style={{ gap: 10, minWidth: 140 }}><span className="score" style={{ width: 28 }}>{a.riskScore}</span><div className="grow"><Meter value={a.riskScore / 100} tone={a.riskScore >= 70 ? 'danger' : a.riskScore >= 40 ? 'warn' : undefined} /></div></div> },
               ]}
             />
           )}

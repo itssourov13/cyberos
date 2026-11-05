@@ -5,7 +5,9 @@ package sdk
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"cyberos/internal/ai"
@@ -41,35 +43,36 @@ import (
 // Client is the SDK entrypoint. Sensitive operations always go through
 // Control Plane → Grant → Broker.
 type Client struct {
-	Identity        *identity.Service
-	Scopes          *appscope.Service
-	Caps            *capability.Registry
-	Tasks           *taskengine.Engine
-	Control         *controlplane.Service
-	Issuer          *broker.Issuer
-	Broker          *broker.Broker
-	Evidence        *evidence.Service
-	Findings        *findings.Service
-	Provenance      *provenance.Service
-	Audit           *audit.Service
-	Catalog         *Catalog
-	Assessment      *assessment.Orchestrator
-	Tools           *tools.Manager
-	Events          *events.Store
-	Hub             *events.Hub
-	ExecReg         *execution.Registry
-	Auth            auth.Authenticator
-	Platform        *tools.Platform
-	Assets          *assets.Inventory
-	RiskPrio        *riskprio.Engine
-	Cases           *cases.Service
-	Reports         *reports.Service
-	Lifecycle       *lifecycle.Controller    // optional durable execution jobs (Phase 9D)
-	Workflow        *workflow.Orchestrator   // Phase 10B/10C orchestration
-	AIApply         *apply.Applicator        // Phase 12D plan → workflow (no execution)
-	Autonomy        *autonomy.Controller     // Phase 13/14 autonomy
-	AutonomyHandoff *autonomy.AdvanceHandoff // Phase 14B handoff
-	Brain           ai.Brain                 // Phase 15D optional external brain
+	Identity                    *identity.Service
+	Scopes                      *appscope.Service
+	Caps                        *capability.Registry
+	Tasks                       *taskengine.Engine
+	Control                     *controlplane.Service
+	Issuer                      *broker.Issuer
+	Broker                      *broker.Broker
+	Evidence                    *evidence.Service
+	Findings                    *findings.Service
+	Provenance                  *provenance.Service
+	Audit                       *audit.Service
+	Catalog                     *Catalog
+	Assessment                  *assessment.Orchestrator
+	Tools                       *tools.Manager
+	Events                      *events.Store
+	Hub                         *events.Hub
+	ExecReg                     *execution.Registry
+	Auth                        auth.Authenticator
+	Platform                    *tools.Platform
+	Assets                      *assets.Inventory
+	RiskPrio                    *riskprio.Engine
+	Cases                       *cases.Service
+	Reports                     *reports.Service
+	Lifecycle                   *lifecycle.Controller    // optional durable execution jobs (Phase 9D)
+	Workflow                    *workflow.Orchestrator   // Phase 10B/10C orchestration
+	AIApply                     *apply.Applicator        // Phase 12D plan → workflow (no execution)
+	Autonomy                    *autonomy.Controller     // Phase 13/14 autonomy
+	AutonomyHandoff             *autonomy.AdvanceHandoff // Phase 14B handoff
+	Brain                       ai.Brain                 // Phase 15D optional external brain
+	RequireExplicitExecutorHint bool                     // production must bind every grant to one registered executor
 }
 
 // NewInMemory constructs a client with mock broker, issuer, evidence stack,
@@ -79,6 +82,7 @@ func NewInMemory() *Client {
 	ev := evidence.NewService()
 	evStore := events.NewStore()
 	hub := events.NewHub()
+	evStore = evStore.WithHub(hub)
 	execReg := execution.NewRegistry()
 	toolMgr := tools.NewManager(nil)
 	_ = toolMgr.Register(tools.NewStubScanner(nil))
@@ -112,11 +116,43 @@ func NewInMemory() *Client {
 		lifecycle.WithFindings(c.Findings),
 		lifecycle.WithProvenance(c.Provenance),
 	)
+	if err := c.EnableGrantProvenance(nil); err != nil {
+		panic(err) // crypto/rand failure is unrecoverable
+	}
+	c.UseGrantLedger(broker.NewMemoryGrantLedger()) // process-local; production swaps in PostgreSQL
 	c.WireWorkflow()
 	c.AIApply = apply.NewApplicator(nil)
 	c.WireAutonomy(nil)
 	// Phase 4A: no demo seed — catalog starts empty until RefreshFromRepos or explicit upserts.
 	return c
+}
+
+// EnableGrantProvenance makes the Issuer sign every grant and the Broker reject
+// any grant not signed by it. A nil/empty key selects an ephemeral per-process
+// key (fail-closed across restarts).
+func (c *Client) EnableGrantProvenance(key []byte) error {
+	var (
+		signer *broker.GrantSigner
+		err    error
+	)
+	if len(key) == 0 {
+		signer, err = broker.NewEphemeralGrantSigner()
+	} else {
+		signer, err = broker.NewGrantSigner(key)
+	}
+	if err != nil {
+		return err
+	}
+	c.Issuer.Signer = signer
+	c.Broker.Signer = signer
+	return nil
+}
+
+// UseGrantLedger wires the shared grant ledger into both the Issuer (records
+// every issued grant) and the Broker (atomic one-time claim, revocation).
+func (c *Client) UseGrantLedger(l broker.GrantLedger) {
+	c.Issuer.Ledger = l
+	c.Broker.Ledger = l
 }
 
 // mockToolExecutor adapts mock.Executor to ToolExecutor for registry default.
@@ -159,8 +195,9 @@ func (c *Client) WireAssessment() *Client {
 	if c.Control == nil || c.Issuer == nil || c.Broker == nil {
 		return c
 	}
-	issuer := assessment.ControlPlaneIssuer{Control: c.Control, Issuer: c.Issuer}
-	orch := assessment.NewOrchestrator(issuer, c.Broker)
+	issuer := sdkAssessmentIssuer{client: c}
+	executor := sdkAssessmentExecutor{client: c}
+	orch := assessment.NewOrchestrator(issuer, executor)
 	if c.Evidence != nil {
 		orch = orch.WithEvidence(c.Evidence, c.Findings, c.Provenance, c.Events)
 	}
@@ -191,17 +228,28 @@ func (c *Client) WireWorkflow() *Client {
 		if c.Control == nil || c.Issuer == nil {
 			return contracts.ExecutionGrant{}, fmt.Errorf("%w: control/issuer required for workflow steps", contracts.ErrInvalidArgument)
 		}
-		g, d, err := c.Issuer.IssueAfterEvaluate(ctx, c.Control, controlplane.EvaluateRequest{
+		eval := controlplane.EvaluateRequest{
 			PrincipalID: req.PrincipalID, ProjectID: req.ProjectID, ScopeID: req.ScopeID,
 			TaskID: req.TaskID, CapabilityID: req.CapabilityID, CorrelationID: req.CorrelationID,
-		})
-		if err != nil {
-			return contracts.ExecutionGrant{}, err
 		}
-		if !d.Allowed() {
-			return contracts.ExecutionGrant{}, fmt.Errorf("%w: %s", contracts.ErrForbidden, d.Reason)
+		constraints := contracts.ExecutionGrantConstraints{}
+		if req.ExecutorHint != "" {
+			constraints.AllowedExecutorHints = []string{req.ExecutorHint}
 		}
-		return g.ExecutionGrant, nil
+		if req.Target != "" {
+			constraints.AllowedTargets = []string{req.Target}
+			if c.Assets != nil {
+				asset, assetErr := c.Assets.GetByValue(req.ProjectID, req.Target)
+				if assetErr == nil {
+					eval.AssetID = asset.ID
+					constraints.AllowedTargets = []string{asset.Value}
+				} else if !errors.Is(assetErr, contracts.ErrNotFound) {
+					return contracts.ExecutionGrant{}, fmt.Errorf("resolve workflow target: %w", assetErr)
+				}
+			}
+		}
+		grant, _, err := c.IssueGrantWithConstraints(ctx, eval, constraints)
+		return grant, err
 	}}
 	c.Workflow = workflow.NewOrchestrator(mat, c.Tasks, c.Lifecycle, auth)
 	return c
@@ -244,29 +292,105 @@ func (c *Client) Evaluate(ctx context.Context, req controlplane.EvaluateRequest)
 	if c.Control == nil {
 		return contracts.Decision{}, fmt.Errorf("%w: control plane not configured", contracts.ErrInvalidArgument)
 	}
+	if req.CorrelationID == "" {
+		req.CorrelationID = contracts.CorrelationID(fmt.Sprintf("decision-%d", time.Now().UTC().UnixNano()))
+	}
 	d, err := c.Control.Evaluate(ctx, req)
 	if err != nil {
 		return d, err
 	}
-	if c.Audit != nil && req.CorrelationID != "" {
-		_, _ = c.Audit.RecordDecision(d)
+	if c.Audit != nil {
+		if _, auditErr := c.Audit.RecordDecision(d); auditErr != nil {
+			return d, fmt.Errorf("decision completed but audit persistence failed: %w", auditErr)
+		}
 	}
 	return d, nil
 }
 
 // IssueGrant evaluates then issues a grant only if allowed.
 func (c *Client) IssueGrant(ctx context.Context, req controlplane.EvaluateRequest) (contracts.ExecutionGrant, contracts.Decision, error) {
+	return c.IssueGrantWithConstraints(ctx, req, contracts.ExecutionGrantConstraints{})
+}
+
+// IssueGrantWithConstraints derives asset bindings from the authoritative inventory
+// before the Issuer signs the grant. Client-provided target strings are never used
+// to replace a canonical stored asset value when an asset ID is supplied.
+func (c *Client) IssueGrantWithConstraints(ctx context.Context, req controlplane.EvaluateRequest, constraints contracts.ExecutionGrantConstraints) (contracts.ExecutionGrant, contracts.Decision, error) {
 	if c.Issuer == nil || c.Control == nil {
 		return contracts.ExecutionGrant{}, contracts.Decision{}, fmt.Errorf("%w: issuer/control not configured", contracts.ErrInvalidArgument)
 	}
-	g, d, err := c.Issuer.IssueAfterEvaluate(ctx, c.Control, req)
+	if c.RequireExplicitExecutorHint && len(constraints.AllowedExecutorHints) == 0 {
+		return contracts.ExecutionGrant{}, contracts.Decision{}, fmt.Errorf("%w: production grant requires a registered executor hint", contracts.ErrCapabilityUnknown)
+	}
+	if c.RequireExplicitExecutorHint {
+		if c.Tools == nil {
+			return contracts.ExecutionGrant{}, contracts.Decision{}, fmt.Errorf("%w: production tool manager unavailable", contracts.ErrInvalidArgument)
+		}
+		for _, hint := range constraints.AllowedExecutorHints {
+			adapter, err := c.Tools.Get(hint)
+			if err != nil {
+				return contracts.ExecutionGrant{}, contracts.Decision{}, fmt.Errorf("%w: executor hint %q is not registered", contracts.ErrCapabilityUnknown, hint)
+			}
+			targetBound, ok := adapter.(tools.TargetBoundAdapter)
+			if ok && targetBound.RequiresTargetBinding() {
+				if req.AssetID == "" || len(constraints.AllowedTargets) != 1 || strings.TrimSpace(constraints.AllowedTargets[0]) == "" {
+					return contracts.ExecutionGrant{}, contracts.Decision{}, fmt.Errorf("%w: target-bound production executors require one canonical registered asset", contracts.ErrInvalidArgument)
+				}
+			}
+		}
+	}
+	if req.AssetID != "" {
+		if c.Assets == nil {
+			return contracts.ExecutionGrant{}, contracts.Decision{}, fmt.Errorf("%w: asset inventory not configured", contracts.ErrInvalidArgument)
+		}
+		asset, err := c.Assets.Get(req.AssetID)
+		if err != nil {
+			return contracts.ExecutionGrant{}, contracts.Decision{}, fmt.Errorf("resolve grant asset: %w", err)
+		}
+		if asset.ProjectID != req.ProjectID {
+			return contracts.ExecutionGrant{}, contracts.Decision{}, fmt.Errorf("%w: asset does not belong to project", contracts.ErrForbidden)
+		}
+		if len(constraints.AllowedTargets) > 0 {
+			for _, target := range constraints.AllowedTargets {
+				if target != asset.Value {
+					return contracts.ExecutionGrant{}, contracts.Decision{}, fmt.Errorf("%w: grant target differs from canonical asset value", contracts.ErrForbidden)
+				}
+			}
+		}
+		constraints.AllowedTargets = []string{asset.Value}
+		if !containsGrantAsset(constraints.AllowedAssetIDs, asset.ID) {
+			constraints.AllowedAssetIDs = append(constraints.AllowedAssetIDs, asset.ID)
+		}
+	}
+	g, d, err := c.Issuer.IssueAfterEvaluateWith(ctx, c.Control, req, constraints)
 	if err != nil {
 		return contracts.ExecutionGrant{}, d, err
 	}
 	if c.Audit != nil {
-		_, _ = c.Audit.RecordGrantIssued(g.ExecutionGrant)
+		if _, auditErr := c.Audit.RecordGrantIssued(g.ExecutionGrant); auditErr != nil {
+			// A grant that cannot be durably audited must not remain executable.
+			if c.Broker != nil {
+				revokeErr := c.Broker.RevokeGrantDurable(ctx, g.ExecutionGrant.ID, g.ExecutionGrant.Principal.ID, "grant audit persistence failed")
+				if revokeErr != nil {
+					return contracts.ExecutionGrant{}, d, errors.Join(
+						fmt.Errorf("grant audit persistence failed: %w", auditErr),
+						fmt.Errorf("grant revocation also failed: %w", revokeErr),
+					)
+				}
+			}
+			return contracts.ExecutionGrant{}, d, fmt.Errorf("grant issued but revoked because audit persistence failed: %w", auditErr)
+		}
 	}
 	return g.ExecutionGrant, d, nil
+}
+
+func containsGrantAsset(items []contracts.AssetID, target contracts.AssetID) bool {
+	for _, item := range items {
+		if item == target {
+			return true
+		}
+	}
+	return false
 }
 
 // Execute runs work through the Tool Broker under a grant.
@@ -278,7 +402,9 @@ func (c *Client) Execute(grant contracts.ExecutionGrant, params map[string]any) 
 		Grant: grant, Parameters: params, CorrelationID: grant.CorrelationID,
 	})
 	if c.Audit != nil {
-		_, _ = c.Audit.RecordExecution(grant, res)
+		if _, auditErr := c.Audit.RecordExecution(grant, res); auditErr != nil {
+			return res, errors.Join(err, fmt.Errorf("execution result could not be durably audited: %w", auditErr))
+		}
 	}
 	return res, err
 }

@@ -27,15 +27,15 @@ export function DashboardPage() {
               <div className="grid grid-4">
                 <Stat label="Active scopes" value={d.activeScopes} delta={`${d.projects} projects`} />
                 <Stat label="Open findings" value={d.openFindings} tone={d.openFindings ? 'warn' : 'ok'} delta="open + triaged" />
-                <Stat label="Grants issued · 24h" value={d.grantsIssued24h} tone="grant" spark={d.executionsPerHour.slice(-12)} />
-                <Stat label="Denials · 24h" value={d.denials24h} tone="danger" delta="fail-closed outcomes" />
+                <Stat label="Grants issued · 24h" value={d.grantsIssued24h ?? '—'} tone="grant" spark={d.executionsPerHour?.slice(-12)} delta={d.grantsIssued24h === null ? 'not exposed by backend' : undefined} />
+                <Stat label="Denials · 24h" value={d.denials24h ?? '—'} tone="danger" delta={d.denials24h === null ? 'not exposed by backend' : 'fail-closed outcomes'} />
               </div>
 
               <div className="grid grid-main">
                 <Panel>
                   <PanelHead title="Executions per hour" sub="last 24h" />
                   <div className="panel-body">
-                    <Bars values={d.executionsPerHour} />
+                    {d.executionsPerHour ? <Bars values={d.executionsPerHour} /> : <p className="dim">Execution throughput is not exposed by the backend yet.</p>}
                   </div>
                 </Panel>
                 <Panel>
@@ -43,13 +43,13 @@ export function DashboardPage() {
                   <div className="panel-body col">
                     <div className="row">
                       <span style={{ fontFamily: 'var(--font-display)', fontSize: 30, fontWeight: 600 }}>
-                        {d.workersOnline}/{d.workersTotal}
+                        {d.workersOnline === null || d.workersTotal === null ? '—' : `${d.workersOnline}/${d.workersTotal}`}
                       </span>
                       <Link to="/app/workers" className="link spacer right">
                         View workers →
                       </Link>
                     </div>
-                    <Meter value={d.workersTotal ? d.workersOnline / d.workersTotal : 0} tone={d.workersOnline < d.workersTotal / 2 ? 'warn' : undefined} />
+                    {d.workersOnline !== null && d.workersTotal !== null && <Meter value={d.workersTotal ? d.workersOnline / d.workersTotal : 0} tone={d.workersOnline < d.workersTotal / 2 ? 'warn' : undefined} />}
                     <hr className="hr" style={{ margin: '4px 0' }} />
                     <span className="field-label">Findings by severity</span>
                     <div className="col" style={{ gap: 8 }}>

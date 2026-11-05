@@ -15,6 +15,10 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"projects": []any{}})
 		return
 	}
+	if t := callerTenant(r); t != "" {
+		writeJSON(w, http.StatusOK, map[string]any{"projects": nonNil(s.SDK.Catalog.ListProjectsForTenant(t))})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"projects": s.SDK.Catalog.ListProjects()})
 }
 
@@ -23,12 +27,17 @@ func (s *Server) handleScopes(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	projectID := r.URL.Query().Get("project_id")
+	projectID, ok := requireProjectScope(w, r)
+	if !ok {
+		return
+	}
 	if s.SDK == nil || s.SDK.Catalog == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"scopes": []any{}})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"scopes": s.SDK.Catalog.ListScopes(contracts.ProjectID(projectID))})
+	// requireProjectScope guarantees a tenant-owned project for tenant callers, so a
+	// header-only project can no longer degrade into an unfiltered (all-tenant) list.
+	writeJSON(w, http.StatusOK, map[string]any{"scopes": nonNil(s.SDK.Catalog.ListScopes(projectID))})
 }
 
 func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
@@ -36,13 +45,16 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	projectID := r.URL.Query().Get("project_id")
+	projectID, ok := requireProjectScope(w, r)
+	if !ok {
+		return
+	}
 	scopeID := r.URL.Query().Get("scope_id")
 	if s.SDK == nil || s.SDK.Catalog == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"tasks": []any{}})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tasks": s.SDK.Catalog.ListTasks(contracts.ProjectID(projectID), contracts.ScopeID(scopeID))})
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": nonNil(s.SDK.Catalog.ListTasks(projectID, contracts.ScopeID(scopeID)))})
 }
 
 func (s *Server) handleTaskByID(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +77,9 @@ func (s *Server) handleTaskByID(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "task not found")
 		return
 	}
+	if !enforceObject(w, r, "", t.ProjectID) {
+		return
+	}
 	writeJSON(w, http.StatusOK, t)
 }
 
@@ -76,9 +91,18 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	var projects, scopes, tasks, caps int
 	if s.SDK != nil {
 		if s.SDK.Catalog != nil {
-			projects = len(s.SDK.Catalog.ListProjects())
-			scopes = len(s.SDK.Catalog.ListScopes(""))
-			tasks = len(s.SDK.Catalog.ListTasks("", ""))
+			if t := callerTenant(r); t != "" {
+				// Tenant callers see counts for their own projects only.
+				for _, p := range s.SDK.Catalog.ListProjectsForTenant(t) {
+					projects++
+					scopes += len(s.SDK.Catalog.ListScopes(p.ID))
+					tasks += len(s.SDK.Catalog.ListTasks(p.ID, ""))
+				}
+			} else {
+				projects = len(s.SDK.Catalog.ListProjects())
+				scopes = len(s.SDK.Catalog.ListScopes(""))
+				tasks = len(s.SDK.Catalog.ListTasks("", ""))
+			}
 		}
 		if s.SDK.Caps != nil {
 			list, _ := s.SDK.ListCapabilities(r.Context())
@@ -92,4 +116,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"capabilities": caps,
 		"security":     "Scope → Principal → Control Plane → Grant → Broker → Sandbox",
 	})
+}
+
+func nonNil[T any](v []T) []T {
+	if v == nil {
+		return []T{}
+	}
+	return v
 }

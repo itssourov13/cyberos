@@ -4,6 +4,7 @@ package provenance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -79,18 +80,25 @@ func (s *Service) RecordForEvidence(
 		return nil, err
 	}
 
+	cp := *p
+	k := key("evidence", string(ev.ID))
+	if s.repo != nil {
+		if _, err := s.repo.Get(context.Background(), "evidence", string(ev.ID)); err == nil {
+			return nil, contracts.ErrConflict
+		} else if !errors.Is(err, contracts.ErrNotFound) {
+			return nil, fmt.Errorf("check existing evidence provenance: %w", err)
+		}
+		if err := s.persist(&cp); err != nil {
+			return nil, fmt.Errorf("persist evidence provenance: %w", err)
+		}
+		return &cp, nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	k := key("evidence", string(ev.ID))
 	if _, exists := s.items[k]; exists {
 		return nil, contracts.ErrConflict
 	}
-	cp := *p
 	s.items[k] = &cp
-	if err := s.persist(&cp); err != nil {
-		delete(s.items, k)
-		return nil, err
-	}
 	return &cp, nil
 }
 
@@ -129,18 +137,25 @@ func (s *Service) RecordForFinding(
 		return nil, err
 	}
 
+	cp := *dp
+	k := key("finding", string(f.ID))
+	if s.repo != nil {
+		if _, err := s.repo.Get(context.Background(), "finding", string(f.ID)); err == nil {
+			return nil, contracts.ErrConflict
+		} else if !errors.Is(err, contracts.ErrNotFound) {
+			return nil, fmt.Errorf("check existing finding provenance: %w", err)
+		}
+		if err := s.persist(&cp); err != nil {
+			return nil, fmt.Errorf("persist finding provenance: %w", err)
+		}
+		return &cp, nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	k := key("finding", string(f.ID))
 	if _, exists := s.items[k]; exists {
 		return nil, contracts.ErrConflict
 	}
-	cp := *dp
 	s.items[k] = &cp
-	if err := s.persist(&cp); err != nil {
-		delete(s.items, k)
-		return nil, err
-	}
 	return &cp, nil
 }
 
@@ -148,6 +163,9 @@ func (s *Service) RecordForFinding(
 func (s *Service) Get(subjectType, subjectID string) (*domainprov.Provenance, error) {
 	if s == nil {
 		return nil, fmt.Errorf("%w: provenance service not configured", contracts.ErrInvalidArgument)
+	}
+	if s.repo != nil {
+		return s.repo.Get(context.Background(), subjectType, subjectID)
 	}
 	s.mu.RLock()
 	p, ok := s.items[key(subjectType, subjectID)]
@@ -157,9 +175,6 @@ func (s *Service) Get(subjectType, subjectID string) (*domainprov.Provenance, er
 		return &cp, nil
 	}
 	s.mu.RUnlock()
-	if s.repo != nil {
-		return s.repo.Get(context.Background(), subjectType, subjectID)
-	}
 	return nil, contracts.ErrNotFound
 }
 

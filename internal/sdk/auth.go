@@ -32,6 +32,16 @@ func (c *Client) IssueAPIKey(ctx context.Context, principalID contracts.Principa
 	return a.Issue(ctx, principalID, tenantID, ttl)
 }
 
+// IssueAPIKeyWithRole issues a key with an explicit role (viewer/analyst/admin
+// for tenant keys; operator for tenant-less keys).
+func (c *Client) IssueAPIKeyWithRole(ctx context.Context, principalID contracts.PrincipalID, tenantID contracts.TenantID, role auth.Role, ttl time.Duration) (string, auth.APIKey, error) {
+	a, ok := c.Auth.(*auth.APIKeyAuthenticator)
+	if !ok || a == nil {
+		return "", auth.APIKey{}, fmt.Errorf("%w: API key authenticator not configured", contracts.ErrInvalidArgument)
+	}
+	return a.IssueWithRole(ctx, principalID, tenantID, role, ttl)
+}
+
 // AssertTenant checks isolation for a resource tenant.
 func (c *Client) AssertTenant(caller, resource contracts.TenantID) error {
 	return auth.AssertSameTenant(caller, resource)

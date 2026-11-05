@@ -2,6 +2,7 @@ package assessment
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"cyberos/internal/assets"
@@ -23,20 +24,23 @@ type Phase6Sink struct {
 
 // AfterSuccessfulStep maps execution output into assets → findings → risk → case.
 func (p *Phase6Sink) AfterSuccessfulStep(
-	_ context.Context,
+	ctx context.Context,
 	a *Assessment,
 	step contracts.AssessmentStep,
 	grant contracts.ExecutionGrant,
 	res contracts.ExecutionResult,
-) {
+) error {
 	if p == nil || a == nil {
-		return
+		return nil
 	}
 	nr := normalizedFromResult(res, step)
 	var assetID contracts.AssetID
 	if p.Assets != nil {
 		as, _, err := p.Assets.IngestFromResult(a.ProjectID, a.ScopeID, grant.TaskID, string(grant.CorrelationID)+"/"+step.ID, nr)
-		if err == nil && as != nil {
+		if err != nil {
+			return fmt.Errorf("persist assessment asset observations: %w", err)
+		}
+		if as != nil {
 			assetID = as.ID
 		}
 	}
@@ -45,41 +49,56 @@ func (p *Phase6Sink) AfterSuccessfulStep(
 		ingested, err := p.Findings.Ingest(findings.IngestRequest{
 			Result: nr, ProjectID: a.ProjectID, ScopeID: a.ScopeID, TaskID: grant.TaskID,
 			AssessmentID: string(a.ID), ExecutionID: string(grant.CorrelationID) + "/" + step.ID, PrincipalID: grant.Principal.ID,
-			CorrelationID:   grant.CorrelationID,
-			EvidenceIDs:     nil,
-			DefaultSeverity: contracts.FindingSeverityInfo,
+			CorrelationID: grant.CorrelationID, DefaultSeverity: contracts.FindingSeverityInfo,
 		})
-		if err == nil && len(ingested) > 0 && ingested[0].Finding != nil {
+		if err != nil {
+			return fmt.Errorf("persist assessment findings: %w", err)
+		}
+		if len(ingested) > 0 && ingested[0].Finding != nil {
 			findingID = ingested[0].Finding.ID
 			if p.Risk != nil {
-				_, _ = p.Risk.EvaluateFinding(ingested[0].Finding, contracts.AssetCriticalityMedium, contracts.ExposureUnknown, assetID)
+				if _, err := p.Risk.EvaluateFinding(ingested[0].Finding, contracts.AssetCriticalityMedium, contracts.ExposureUnknown, assetID); err != nil {
+					return fmt.Errorf("persist assessment risk evaluation: %w", err)
+				}
 			}
 		}
 	}
 	if p.Cases != nil && findingID != "" {
 		caseID := fmt.Sprintf("case-%s", a.ID)
-		if _, err := p.Cases.Get(caseID); err != nil {
-			_, _ = p.Cases.Create(cases.CreateRequest{
+		_, err := p.Cases.Get(caseID)
+		switch {
+		case errors.Is(err, contracts.ErrNotFound):
+			assets := []contracts.AssetID(nil)
+			if assetID != "" {
+				assets = []contracts.AssetID{assetID}
+			}
+			_, err = p.Cases.Create(cases.CreateRequest{
 				ID: caseID, ProjectID: a.ProjectID, AssessmentID: string(a.ID),
 				Title: "Assessment case: " + a.Title, FindingIDs: []contracts.FindingID{findingID},
-				AssetIDs: func() []contracts.AssetID {
-					if assetID != "" {
-						return []contracts.AssetID{assetID}
-					}
-					return nil
-				}(),
-				CreatedBy: grant.Principal.ID,
+				AssetIDs: assets, CreatedBy: grant.Principal.ID,
 			})
-		} else {
-			_, _ = p.Cases.LinkFinding(caseID, findingID)
+			if err != nil {
+				return fmt.Errorf("create assessment case: %w", err)
+			}
+		case err != nil:
+			return fmt.Errorf("load assessment case: %w", err)
+		default:
+			if _, err := p.Cases.LinkFinding(caseID, findingID); err != nil {
+				return fmt.Errorf("link finding to assessment case: %w", err)
+			}
 			if assetID != "" {
-				_, _ = p.Cases.LinkAsset(caseID, assetID)
+				if _, err := p.Cases.LinkAsset(caseID, assetID); err != nil {
+					return fmt.Errorf("link asset to assessment case: %w", err)
+				}
 			}
 		}
 		if p.Risk != nil {
-			_, _ = p.Cases.DerivePriorityFromRisks(caseID, p.Risk)
+			if _, err := p.Cases.DerivePriorityFromRisks(caseID, p.Risk); err != nil {
+				return fmt.Errorf("derive assessment case priority: %w", err)
+			}
 		}
 	}
+	return nil
 }
 
 func normalizedFromResult(res contracts.ExecutionResult, step contracts.AssessmentStep) tools.NormalizedResult {

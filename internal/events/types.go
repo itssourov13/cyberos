@@ -23,6 +23,7 @@ const (
 	TypeSignerDisabled     contracts.EventType = "trust.signer.disabled"
 	TypeSignerRevoked      contracts.EventType = "trust.signer.revoked"
 	TypeGrantRejected      contracts.EventType = "grant.rejected"
+	TypeGrantRevoked       contracts.EventType = "grant.revoked"
 	TypePackBindRejected   contracts.EventType = "broker.pack_bind.rejected"
 
 	// Task runner lifecycle (Phase 3C) — facts only; not authorization.

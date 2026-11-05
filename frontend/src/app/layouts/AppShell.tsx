@@ -1,10 +1,11 @@
 import { Suspense, useState } from 'react'
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { LogOut, Menu } from 'lucide-react'
 import { useApi } from '@/api'
 import { Wordmark } from '@/components/brand/Logo'
 import { Banner, Skeleton } from '@/components/ui'
 import { ALL_NAV, NAV } from '@/app/nav'
+import { useSession } from '@/app/providers/session-context'
 import { ThemeToggle } from './ThemeToggle'
 
 function PageFallback() {
@@ -19,6 +20,8 @@ function PageFallback() {
 
 export function AppShell() {
   const api = useApi()
+  const session = useSession()
+  const navigate = useNavigate()
   const { pathname } = useLocation()
   // The drawer is "open for" the path it was opened on, so it closes by itself on navigation.
   const [openAt, setOpenAt] = useState<string | null>(null)
@@ -48,10 +51,21 @@ export function AppShell() {
           </nav>
         ))}
         <span className="spacer" />
-        <Link to="/sign-in" className="nav-link">
+        {session.principalId && (
+          <span className="muted mono truncate" style={{ padding: '0 var(--s-3)', fontSize: 12 }} title={session.tenantId ? `Tenant ${session.tenantId}` : undefined}>
+            {session.principalId}
+          </span>
+        )}
+        <button
+          type="button"
+          className="nav-link"
+          onClick={() => {
+            void session.signOut().finally(() => navigate('/sign-in', { replace: true }))
+          }}
+        >
           <LogOut size={16} aria-hidden="true" />
           Sign out
-        </Link>
+        </button>
       </aside>
       <div className="shell-scrim" onClick={() => setNavOpen(false)} aria-hidden="true" />
 
@@ -72,6 +86,11 @@ export function AppShell() {
           <ThemeToggle />
         </header>
         <main id="content" className="content" tabIndex={-1}>
+          {session.status === 'open' && (
+            <Banner tone="warn" title="Authentication is disabled on this server">
+              The backend is running in explicit development mode without sign-in. Do not expose this instance.
+            </Banner>
+          )}
           {api.mode === 'preview' && (
             <Banner tone="warn" title="Preview data — not connected to the CYBEROS backend">
               Everything on this screen is sample data from a local adapter. Decisions, grants, trust and verification are always produced by the Go control plane, never by this browser.

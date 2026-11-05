@@ -5,6 +5,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -103,8 +104,38 @@ func (c *Controller) Run(req RunRequest) (RunResult, error) {
 		return RunResult{}, fmt.Errorf("%w: grant: %v", contracts.ErrGrantInvalid, err)
 	}
 	if req.IdempotencyKey != "" {
-		if existing, ok := c.lookupIdempotent(req.IdempotencyKey); ok {
-			return RunResult{Record: existing}, nil
+		existing, found, lookupErr := c.lookupIdempotent(req.IdempotencyKey)
+		if lookupErr != nil {
+			return RunResult{}, fmt.Errorf("lookup execution idempotency key: %w", lookupErr)
+		}
+		if found {
+			if existing.State == contracts.ExecutionLifecycleStarted || existing.State == contracts.ExecutionLifecycleQueued {
+				return RunResult{Record: existing}, fmt.Errorf("%w: execution idempotency key is already in progress or has an uncertain outcome; reconcile before retry", contracts.ErrConflict)
+			}
+			out := RunResult{Record: existing}
+			evidenceID, hasEvidence := existing.Metrics["evidence_id"].(string)
+			auditComplete, audited := existing.Metrics["audit_complete"].(bool)
+			if !hasEvidence || evidenceID == "" || !audited || !auditComplete || c.evidence == nil {
+				return out, fmt.Errorf("%w: prior execution has incomplete durable evidence/audit linkage; reconcile before retry", contracts.ErrConflict)
+			}
+			evID := contracts.EvidenceID(evidenceID)
+			ev, err := c.evidence.Get(evID)
+			if err != nil {
+				return out, fmt.Errorf("load prior execution evidence %s: %w", evidenceID, err)
+			}
+			out.Evidence = &evID
+			if findingID, ok := existing.Metrics["finding_id"].(string); ok && findingID != "" {
+				fid := contracts.FindingID(findingID)
+				out.Finding = &fid
+			}
+			out.Result = contracts.ExecutionResult{
+				Status:    contracts.ExecutionStatus(existing.Outcome),
+				StartedAt: existing.StartedAt, FinishedAt: existing.FinishedAt,
+				ExecutorID: existing.ExecutorID,
+				Output:     ev.Payload, ErrorMessage: existing.FailureReason,
+				CorrelationID: existing.CorrelationID,
+			}
+			return out, nil
 		}
 	}
 
@@ -181,7 +212,9 @@ func (c *Controller) Run(req RunRequest) (RunResult, error) {
 	}
 
 	if c.audit != nil {
-		_, _ = c.audit.RecordExecution(req.Grant, res)
+		if _, auditErr := c.audit.RecordExecution(req.Grant, res); auditErr != nil {
+			return RunResult{Record: rec, Result: res}, fmt.Errorf("execution completed but durable audit persistence failed: %w", auditErr)
+		}
 	}
 
 	out := RunResult{Record: rec, Result: res}
@@ -195,10 +228,12 @@ func (c *Controller) Run(req RunRequest) (RunResult, error) {
 		if evID == "" {
 			evID = contracts.EvidenceID("ev-" + string(execID))
 		}
-		// Enrich result output with safe lifecycle metadata
+		// Enrich result output with safe lifecycle metadata. Evidence is the
+		// canonical replay source, so include stable evidence linkage in payload.
 		if res.Output == nil {
 			res.Output = map[string]any{}
 		}
+		res.Output["evidence_id"] = string(evID)
 		res.Output["lifecycle"] = map[string]any{
 			"execution_id": string(execID),
 			"attempt":      attempt,
@@ -211,13 +246,16 @@ func (c *Controller) Run(req RunRequest) (RunResult, error) {
 			return out, fmt.Errorf("evidence required: %w", eerr)
 		}
 		out.Evidence = &ev.ID
+		rec.Metrics["evidence_id"] = string(ev.ID)
 		if c.provenance != nil {
 			if _, perr := c.provenance.RecordForEvidence(ev, res.ExecutorID); perr != nil {
 				return out, fmt.Errorf("provenance required: %w", perr)
 			}
 		}
 		if c.audit != nil {
-			_, _ = c.audit.RecordEvidence(ev.ID, req.Grant, corr)
+			if _, auditErr := c.audit.RecordEvidence(ev.ID, req.Grant, corr); auditErr != nil {
+				return out, fmt.Errorf("evidence recorded but durable audit persistence failed: %w", auditErr)
+			}
 		}
 	}
 
@@ -240,16 +278,27 @@ func (c *Controller) Run(req RunRequest) (RunResult, error) {
 		})
 		if ferr == nil {
 			out.Finding = &f.ID
+			rec.Metrics["finding_id"] = string(f.ID)
 			if c.provenance != nil {
-				_, _ = c.provenance.RecordForFinding(f, req.Grant.Principal, req.Grant.CapabilityID, req.Grant.ID, res.ExecutorID)
+				if _, provenanceErr := c.provenance.RecordForFinding(f, req.Grant.Principal, req.Grant.CapabilityID, req.Grant.ID, res.ExecutorID); provenanceErr != nil {
+					return out, fmt.Errorf("finding recorded but provenance persistence failed: %w", provenanceErr)
+				}
 			}
 			if c.audit != nil {
 				p := req.Grant.Principal
-				_, _ = c.audit.RecordFinding(f.ID, f.TaskID, f.ProjectID, f.ScopeID, &p, corr)
+				if _, auditErr := c.audit.RecordFinding(f.ID, f.TaskID, f.ProjectID, f.ScopeID, &p, corr); auditErr != nil {
+					return out, fmt.Errorf("finding recorded but durable audit persistence failed: %w", auditErr)
+				}
 			}
 		}
 	}
 
+	rec.Metrics["audit_complete"] = true
+	if err := c.store(rec); err != nil {
+		return out, fmt.Errorf("persist completed evidence/audit linkage: %w", err)
+	}
+	out.Record = rec
+	out.Result = res
 	if err != nil {
 		return out, err
 	}
@@ -258,6 +307,12 @@ func (c *Controller) Run(req RunRequest) (RunResult, error) {
 
 // Get returns a stored execution record.
 func (c *Controller) Get(id contracts.ExecutionID) (contracts.ExecutionRecord, error) {
+	if c == nil {
+		return contracts.ExecutionRecord{}, contracts.ErrInvalidArgument
+	}
+	if c.repo != nil {
+		return c.repo.GetByID(context.Background(), id)
+	}
 	c.mu.RLock()
 	r, ok := c.records[id]
 	if ok {
@@ -272,27 +327,37 @@ func (c *Controller) Get(id contracts.ExecutionID) (contracts.ExecutionRecord, e
 	return contracts.ExecutionRecord{}, contracts.ErrNotFound
 }
 
-func (c *Controller) lookupIdempotent(key string) (contracts.ExecutionRecord, bool) {
-	c.mu.RLock()
-	for _, r := range c.records {
-		if r.IdempotencyKey == key && r.State != contracts.ExecutionLifecycleStarted && r.State != contracts.ExecutionLifecycleQueued {
-			cp := *r
-			c.mu.RUnlock()
-			return cp, true
-		}
-	}
-	c.mu.RUnlock()
+func (c *Controller) lookupIdempotent(key string) (contracts.ExecutionRecord, bool, error) {
 	if c.repo != nil {
 		rec, err := c.repo.GetByIdempotencyKey(context.Background(), key)
-		if err == nil {
-			return rec, true
+		if errors.Is(err, contracts.ErrNotFound) {
+			return contracts.ExecutionRecord{}, false, nil
+		}
+		if err != nil {
+			return contracts.ExecutionRecord{}, false, err
+		}
+		return rec, true, nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for _, r := range c.records {
+		if r.IdempotencyKey == key {
+			cp := *r
+			return cp, true, nil
 		}
 	}
-	return contracts.ExecutionRecord{}, false
+	return contracts.ExecutionRecord{}, false, nil
 }
 
 // ListByTask returns records for a task (memory, then durable when configured).
 func (c *Controller) ListByTask(taskID contracts.TaskID) []contracts.ExecutionRecord {
+	if c == nil {
+		return nil
+	}
+	if c.repo != nil {
+		out, _ := c.repo.ListByTask(context.Background(), taskID, 200, 0)
+		return out
+	}
 	c.mu.RLock()
 	var out []contracts.ExecutionRecord
 	seen := map[contracts.ExecutionID]struct{}{}
@@ -316,15 +381,18 @@ func (c *Controller) ListByTask(taskID contracts.TaskID) []contracts.ExecutionRe
 }
 
 func (c *Controller) store(r contracts.ExecutionRecord) error {
+	if c == nil {
+		return contracts.ErrInvalidArgument
+	}
+	if c.repo != nil {
+		// The durable repository is authoritative. Persist before publishing to
+		// callers and avoid an unbounded/stale process-local duplicate cache.
+		return c.repo.Upsert(context.Background(), r)
+	}
 	c.mu.Lock()
 	cp := r
 	c.records[r.ID] = &cp
 	c.mu.Unlock()
-	if c.repo != nil {
-		if err := c.repo.Upsert(context.Background(), r); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 

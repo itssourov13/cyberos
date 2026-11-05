@@ -11,9 +11,9 @@ import (
 // Only SERVICE principals may mutate trust/signer state.
 // Does not issue Grants or call Broker.
 type TrustAdmin struct {
-	Store  TrustStorePort
-	Keys   SignerKeyRegistryPort
-	Audit  *audit.Service // optional
+	Store TrustStorePort
+	Keys  SignerKeyRegistryPort
+	Audit *audit.Service // optional
 }
 
 // AuthorizeOperator rejects non-SERVICE principals (fail closed).
@@ -21,8 +21,11 @@ func AuthorizeOperator(p contracts.PrincipalRef) error {
 	if p.ID == "" {
 		return fmt.Errorf("%w: operator principal required", contracts.ErrForbidden)
 	}
-	if p.Type != contracts.PrincipalTypeService {
-		return fmt.Errorf("%w: trust admin requires SERVICE principal", contracts.ErrForbidden)
+	// The bootstrap credential is the platform's human break-glass operator.
+	// No other human account may administer signer or pack trust state.
+	if p.Type != contracts.PrincipalTypeService &&
+		!(p.Type == contracts.PrincipalTypeHuman && p.ID == "bootstrap") {
+		return fmt.Errorf("%w: trust admin requires a platform operator principal", contracts.ErrForbidden)
 	}
 	return nil
 }
@@ -38,7 +41,9 @@ func (a *TrustAdmin) TrustPack(op contracts.PrincipalRef, project contracts.Proj
 		return err
 	}
 	if a.Audit != nil {
-		_, _ = a.Audit.RecordTrustMutation("PACK_TRUSTED", op, project, digest, "", reason, correlation, nil)
+		if _, err := a.Audit.RecordTrustMutation("PACK_TRUSTED", op, project, digest, "", reason, correlation, nil); err != nil {
+			return fmt.Errorf("pack trust changed but audit persistence failed: %w", err)
+		}
 	}
 	return nil
 }
@@ -54,7 +59,9 @@ func (a *TrustAdmin) RevokePack(op contracts.PrincipalRef, project contracts.Pro
 		return err
 	}
 	if a.Audit != nil {
-		_, _ = a.Audit.RecordTrustMutation("PACK_REVOKED", op, project, digest, "", reason, correlation, nil)
+		if _, err := a.Audit.RecordTrustMutation("PACK_REVOKED", op, project, digest, "", reason, correlation, nil); err != nil {
+			return fmt.Errorf("pack revocation committed but audit persistence failed: %w", err)
+		}
 	}
 	return nil
 }
@@ -70,7 +77,9 @@ func (a *TrustAdmin) RegisterSigner(op contracts.PrincipalRef, key SignerKey, co
 		return err
 	}
 	if a.Audit != nil {
-		_, _ = a.Audit.RecordTrustMutation("SIGNER_REGISTERED", op, "", "", key.KeyID, "", correlation, nil)
+		if _, err := a.Audit.RecordTrustMutation("SIGNER_REGISTERED", op, "", "", key.KeyID, "", correlation, nil); err != nil {
+			return fmt.Errorf("signer registered but audit persistence failed: %w", err)
+		}
 	}
 	return nil
 }
@@ -86,7 +95,9 @@ func (a *TrustAdmin) DisableSigner(op contracts.PrincipalRef, keyID, correlation
 		return err
 	}
 	if a.Audit != nil {
-		_, _ = a.Audit.RecordTrustMutation("SIGNER_DISABLED", op, "", "", keyID, "", correlation, nil)
+		if _, err := a.Audit.RecordTrustMutation("SIGNER_DISABLED", op, "", "", keyID, "", correlation, nil); err != nil {
+			return fmt.Errorf("signer disabled but audit persistence failed: %w", err)
+		}
 	}
 	return nil
 }
@@ -102,7 +113,9 @@ func (a *TrustAdmin) RevokeSigner(op contracts.PrincipalRef, keyID, correlation 
 		return err
 	}
 	if a.Audit != nil {
-		_, _ = a.Audit.RecordTrustMutation("SIGNER_REVOKED", op, "", "", keyID, "", correlation, nil)
+		if _, err := a.Audit.RecordTrustMutation("SIGNER_REVOKED", op, "", "", keyID, "", correlation, nil); err != nil {
+			return fmt.Errorf("signer revoked but audit persistence failed: %w", err)
+		}
 	}
 	return nil
 }

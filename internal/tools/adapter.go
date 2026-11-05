@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"cyberos/internal/contracts"
@@ -11,6 +12,13 @@ import (
 
 // Adapter is a pluggable security-tool integration.
 // Adapters must not expose unrestricted shell or bypass the broker.
+// TargetBoundAdapter marks adapters whose work is inherently directed at a
+// remote host or URL. Production grant issuance requires a canonical asset for
+// these adapters, and Broker then enforces its signed target value.
+type TargetBoundAdapter interface {
+	RequiresTargetBinding() bool
+}
+
 type Adapter interface {
 	Descriptor() Descriptor
 	Health(ctx context.Context) HealthReport
@@ -89,7 +97,12 @@ func (m *Manager) ExecutorFor(toolID string) (contracts.ToolExecutor, error) {
 func (m *Manager) RegisterAllExecutors(reg interface {
 	Register(ex contracts.ToolExecutor) error
 }) error {
+	ids := make([]string, 0, len(m.adapters))
 	for id := range m.adapters {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
 		ex, err := m.ExecutorFor(id)
 		if err != nil {
 			return err

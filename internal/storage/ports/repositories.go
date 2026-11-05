@@ -105,7 +105,10 @@ type AssessmentRepository interface {
 	Create(ctx context.Context, r AssessmentRecord) error
 	Update(ctx context.Context, r AssessmentRecord) error
 	GetByID(ctx context.Context, id string) (AssessmentRecord, error)
+	// ClaimRun atomically transitions PLANNED → RUNNING across API replicas.
+	ClaimRun(ctx context.Context, id string) (AssessmentRecord, error)
 	List(ctx context.Context, limit, offset int) ([]AssessmentRecord, error)
+	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]AssessmentRecord, error)
 }
 
 // Repositories aggregates all repository ports for convenient wiring.
@@ -130,6 +133,9 @@ type WorkflowRunRecord struct {
 
 // WorkflowRunRepository persists workflow runs and step status (orchestration only).
 type WorkflowRunRepository interface {
+	// Create inserts a new run without overwriting an existing ID. Concurrent
+	// starts with the same caller-supplied ID must produce one winner.
+	Create(ctx context.Context, r WorkflowRunRecord) error
 	Upsert(ctx context.Context, r WorkflowRunRecord) error
 	GetByID(ctx context.Context, id string) (WorkflowRunRecord, error)
 	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]WorkflowRunRecord, error)
@@ -210,9 +216,32 @@ type CaseRecord struct {
 	Metadata     map[string]string
 }
 
+// CaseStatusChange is one attributable status transition.
+type CaseStatusChange struct {
+	CaseID    string
+	TenantID  contracts.TenantID
+	ProjectID contracts.ProjectID
+	From      contracts.CaseStatus
+	To        contracts.CaseStatus
+	Actor     contracts.PrincipalID
+	Reason    string
+	At        time.Time
+}
+
 // CaseRepository persists security cases.
 type CaseRepository interface {
+	// Insert creates a new case and returns contracts.ErrConflict when the id exists
+	// (it must never overwrite another tenant's case).
+	Insert(ctx context.Context, c CaseRecord) error
+	// Upsert updates mutable fields of an existing case (links, priority, metadata).
+	// It must never change tenant, project or creator of an existing row.
 	Upsert(ctx context.Context, c CaseRecord) error
+	// Transition atomically moves a case from one status to another and appends the
+	// attributable history entry in the same transaction. It returns ErrConflict if
+	// the stored status is no longer `from` and ErrNotFound if the case is missing.
+	Transition(ctx context.Context, id string, from, to contracts.CaseStatus, change CaseStatusChange) (CaseRecord, error)
+	// StatusHistory returns the status changes of a case, oldest first.
+	StatusHistory(ctx context.Context, caseID string) ([]CaseStatusChange, error)
 	GetByID(ctx context.Context, id string) (CaseRecord, error)
 	ListByProject(ctx context.Context, projectID contracts.ProjectID, limit, offset int) ([]CaseRecord, error)
 	ListByAssessment(ctx context.Context, assessmentID string, limit, offset int) ([]CaseRecord, error)

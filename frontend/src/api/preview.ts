@@ -328,6 +328,7 @@ export const previewApi: CyberosApi = {
   projects: () => wait(projects),
   scopes: (projectId) => wait(projectId ? scopes.filter((s) => s.projectId === projectId) : scopes),
   tasks: (projectId) => wait(projectId ? tasks.filter((t) => t.projectId === projectId) : tasks),
+  capabilities: () => wait([...new Set(packs.flatMap((p) => p.capabilities))].sort()),
   submitSpineRequest: (req) => wait(simulate(req), 700),
   workers: () => wait(workers),
   assignments: () => wait(assignments),

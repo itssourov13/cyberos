@@ -52,6 +52,8 @@ func DefaultPolicy() Policy {
 }
 
 // Result captures process outcomes for normalization upstream.
+const HardMaxOutputBytes int64 = 4 * 1024 * 1024
+
 type Result struct {
 	Stdout   string
 	Stderr   string
@@ -114,6 +116,9 @@ func (r *Runner) RunDetailed(ctx context.Context, spec Spec) (Result, error) {
 	if maxOut <= 0 {
 		maxOut = r.Policy.MaxOutputBytes
 	}
+	if maxOut <= 0 || maxOut > HardMaxOutputBytes {
+		maxOut = HardMaxOutputBytes
+	}
 
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -129,15 +134,16 @@ func (r *Runner) RunDetailed(ctx context.Context, spec Spec) (Result, error) {
 		cmd.Env = []string{} // empty env when none provided
 	}
 
-	var stdoutBuf, stderrBuf bytes.Buffer
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
+	stdoutBuf := &limitedBuffer{limit: maxOut}
+	stderrBuf := &limitedBuffer{limit: maxOut}
+	cmd.Stdout = stdoutBuf
+	cmd.Stderr = stderrBuf
 
 	runErr := cmd.Run()
 	dur := time.Since(start)
 	res := Result{
-		Stdout:   truncate(stdoutBuf.String(), maxOut),
-		Stderr:   truncate(stderrBuf.String(), maxOut),
+		Stdout:   stdoutBuf.Result(),
+		Stderr:   stderrBuf.Result(),
 		Duration: dur,
 		ExitCode: 0,
 	}
@@ -182,9 +188,36 @@ func (r *Runner) allowDir(dir string) error {
 	return fmt.Errorf("%w: workdir not allowlisted", contracts.ErrForbidden)
 }
 
-func truncate(s string, max int64) string {
-	if max <= 0 || int64(len(s)) <= max {
-		return s
+// limitedBuffer bounds process output while the child is running. The standard
+// bytes.Buffer path retained the complete stdout/stderr in memory and truncated
+// only afterwards, allowing a noisy tool to exhaust the API process heap.
+type limitedBuffer struct {
+	buf       bytes.Buffer
+	limit     int64
+	truncated bool
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	original := len(p)
+	remaining := b.limit - int64(b.buf.Len())
+	if remaining <= 0 {
+		if original > 0 {
+			b.truncated = true
+		}
+		return original, nil
 	}
-	return s[:max] + "…(truncated)"
+	if int64(len(p)) > remaining {
+		p = p[:int(remaining)]
+		b.truncated = true
+	}
+	_, err := b.buf.Write(p)
+	return original, err
+}
+
+func (b *limitedBuffer) Result() string {
+	value := b.buf.String()
+	if b.truncated {
+		return value + "…(truncated)"
+	}
+	return value
 }

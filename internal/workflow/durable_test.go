@@ -17,6 +17,22 @@ type memRunRepo struct {
 	fail bool
 }
 
+func (m *memRunRepo) Create(_ context.Context, r ports.WorkflowRunRecord) error {
+	if m.fail {
+		return errors.New("persist failed")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.data == nil {
+		m.data = map[string]ports.WorkflowRunRecord{}
+	}
+	if _, exists := m.data[r.ID]; exists {
+		return contracts.ErrConflict
+	}
+	m.data[r.ID] = r
+	return nil
+}
+
 func (m *memRunRepo) Upsert(_ context.Context, r ports.WorkflowRunRecord) error {
 	if m.fail {
 		return errors.New("persist failed")
