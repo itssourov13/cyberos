@@ -131,6 +131,9 @@ func NewProduction(ctx context.Context, cfg *config.Config, migrationsDir string
 		_ = db.Close()
 		return nil, err
 	}
+	// Durable, cluster-safe grant registry: unissued/replayed/revoked grants
+	// are rejected by the database, not by process memory.
+	c.UseGrantLedger(postgres.NewGrantLedger(db))
 	_ = c.Catalog.RefreshFromRepos(ctx, repos)
 	c.WireAssessment()
 	c.Lifecycle = lifecycle.New(brk,

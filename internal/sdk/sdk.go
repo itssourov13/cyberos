@@ -115,6 +115,7 @@ func NewInMemory() *Client {
 	if err := c.EnableGrantProvenance(nil); err != nil {
 		panic(err) // crypto/rand failure is unrecoverable
 	}
+	c.UseGrantLedger(broker.NewMemoryGrantLedger()) // process-local; production swaps in PostgreSQL
 	c.WireWorkflow()
 	c.AIApply = apply.NewApplicator(nil)
 	c.WireAutonomy(nil)
@@ -141,6 +142,13 @@ func (c *Client) EnableGrantProvenance(key []byte) error {
 	c.Issuer.Signer = signer
 	c.Broker.Signer = signer
 	return nil
+}
+
+// UseGrantLedger wires the shared grant ledger into both the Issuer (records
+// every issued grant) and the Broker (atomic one-time claim, revocation).
+func (c *Client) UseGrantLedger(l broker.GrantLedger) {
+	c.Issuer.Ledger = l
+	c.Broker.Ledger = l
 }
 
 // mockToolExecutor adapts mock.Executor to ToolExecutor for registry default.

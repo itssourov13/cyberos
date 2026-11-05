@@ -20,6 +20,10 @@ type Issuer struct {
 	// Signer, when set, signs every issued grant so the Broker can prove
 	// provenance. Production wiring always sets it.
 	Signer *GrantSigner
+	// Ledger, when set, receives a record of every issued grant. Issuance fails
+	// closed if the record cannot be stored: a grant the ledger does not know
+	// about could never be claimed by the Broker anyway.
+	Ledger GrantLedger
 }
 
 // NewIssuer constructs a grant issuer.
@@ -50,7 +54,7 @@ type IssueRequest struct {
 
 // Issue creates an ExecutionGrant only if the Control Plane decision is ALLOWED.
 // Any other outcome returns ErrForbidden / ErrGrantInvalid.
-func (i *Issuer) Issue(_ context.Context, req IssueRequest) (*domaingrant.Grant, error) {
+func (i *Issuer) Issue(ctx context.Context, req IssueRequest) (*domaingrant.Grant, error) {
 	if i == nil {
 		return nil, fmt.Errorf("%w: issuer not configured", contracts.ErrInvalidArgument)
 	}
@@ -129,6 +133,17 @@ func (i *Issuer) Issue(_ context.Context, req IssueRequest) (*domaingrant.Grant,
 			return nil, fmt.Errorf("sign grant: %w", err)
 		}
 		g.Signature = sig
+	}
+	if i.Ledger != nil {
+		rec := GrantRecord{
+			GrantID: g.ID, Nonce: g.Nonce, PrincipalID: g.Principal.ID,
+			ProjectID: g.ProjectID, ScopeID: g.ScopeID, TaskID: g.TaskID,
+			CapabilityID: g.CapabilityID, CorrelationID: g.CorrelationID,
+			IssuedAt: g.IssuedAt, ExpiresAt: g.ExpiresAt,
+		}
+		if err := i.Ledger.Record(ctx, rec); err != nil {
+			return nil, fmt.Errorf("record issued grant: %w", err)
+		}
 	}
 	return domaingrant.NewFromContract(g)
 }
