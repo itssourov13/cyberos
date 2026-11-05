@@ -1,52 +1,23 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CYBEROS Dashboard</title>
-  <link rel="stylesheet" href="styles.css" />
-</head>
-<body>
-  <header>
-    <h1>CYBEROS</h1>
-    <p class="tagline">Cybersecurity Operating System — Phase 3A Foundation</p>
-  </header>
-
-  <section class="security-banner">
-    <strong>Security chain (non-bypassable):</strong>
-    Scope → Principal → Control Plane → Grant → Broker → Sandbox
-  </section>
-
-  <section id="stats" class="cards">
-    <div class="card"><h3>Projects</h3><p id="stat-projects">—</p></div>
-    <div class="card"><h3>Scopes</h3><p id="stat-scopes">—</p></div>
-    <div class="card"><h3>Tasks</h3><p id="stat-tasks">—</p></div>
-    <div class="card"><h3>Capabilities</h3><p id="stat-caps">—</p></div>
-  </section>
-
-  <section>
-    <h2>Projects</h2>
-    <div id="projects" class="table-wrap">Loading…</div>
-  </section>
-
-  <section>
-    <h2>Scopes</h2>
-    <div id="scopes" class="table-wrap">Loading…</div>
-  </section>
-
-  <section>
-    <h2>Tasks</h2>
-    <div id="tasks" class="table-wrap">Loading…</div>
-  </section>
-
-  <section>
-    <h2>Capabilities</h2>
-    <div id="capabilities" class="table-wrap">Loading…</div>
-  </section>
-
-  <footer>
-    <p>UI is a thin client over <code>/api/v1/*</code>. No business logic in the browser.</p>
-  </footer>
-  <script src="app.js"></script>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>CYBEROS API</title>
+    <style>
+      :root { color-scheme: dark light; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #07090d; color: #a7b2c3; font: 14px/1.6 ui-sans-serif, system-ui, sans-serif; }
+      main { max-width: 440px; padding: 32px; }
+      h1 { margin: 0 0 8px; color: #e8edf4; font-size: 18px; letter-spacing: 0.12em; }
+      code { color: #4df0b4; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>CYBEROS</h1>
+      <p>This endpoint serves the CYBEROS API. The operator console is delivered by the new frontend build (<code>frontend/</code>) and is wired to this server in a later phase.</p>
+      <p>Liveness: <code>/api/v1/health</code></p>
+    </main>
+  </body>
 </html>

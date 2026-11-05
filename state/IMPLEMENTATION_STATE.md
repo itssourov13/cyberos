@@ -15,3 +15,25 @@
 - v0.14.0 Durable controlled autonomy
 - v0.13.0 Autonomy foundation
 - v0.12.0 AI Brain
+
+
+## Phase 24C — Frontend clean-slate rebuild — IMPLEMENTED, NOT VERIFIED
+**Updated:** 2026-11-05
+- [x] Old UI retired in 3 locations; Go embed placeholder in place
+- [x] Design system, component library, API seam, preview adapter
+- [x] Public site + sign-in UI + 24 console routes
+- [x] Docs: `docs/FRONTEND_REBUILD.md`, roadmap, build plan, handoff, decisions
+- [ ] Owner verification and acceptance
+- [ ] Phase 24D (not started)
+
+Tests/build/lint/type-check were NOT executed because the owner reserved verification for a separate phase.
+
+## Post-24C audit fix pass — IMPLEMENTED, NOT VERIFIED
+- [x] Principal binding (`internal/api/v1/isolation.go`, `server.go`, `handlers_assessment.go`, `handlers_workflow.go`); `/execute` grant-owner check
+- [x] Loopback default + listen-security validation + `http.Server` timeouts (`internal/config/config.go`, `cmd/cyberos/main.go`, SSE write-deadline clear in `sse.go`)
+- [x] Vite 8.3.5 + plugin-react 6.2.1, lockfile regenerated with `--package-lock-only`
+- [x] TypeScript generic-inference fixes; lint fixes (keys, nav effects, export separation)
+- [x] Preview adapter: target-in-scope validation; `sample:` identifiers
+- [ ] Owner verification (go test/vet, npm typecheck/lint/build/audit)
+
+Tests/build/lint/type-check were NOT executed because the owner reserved verification for a separate phase.

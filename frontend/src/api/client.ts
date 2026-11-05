@@ -1,14 +1,62 @@
-import type { ApiClient } from './types'
-import { mockApiClient } from './mock/client'
+import type {
+  Assignment,
+  Asset,
+  AuditEvent,
+  CaseItem,
+  DashboardSummary,
+  Finding,
+  Pack,
+  Project,
+  Report,
+  Scope,
+  SpineRequest,
+  SpineTrace,
+  SystemInfo,
+  Task,
+  Worker,
+} from './types'
+
+/** Every failure surfaces as a typed, fail-closed error. */
+export class ApiError extends Error {
+  readonly code: 'unavailable' | 'unauthenticated' | 'forbidden' | 'invalid' | 'not-found' | 'unknown'
+  constructor(code: ApiError['code'], message: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.code = code
+  }
+}
 
 /**
- * API boundary. Default: MOCK adapter for Part 1.
- * Production will target CYBEROS Go /api/v1 without client-side authz.
+ * The single seam between the UI and the platform.
+ *
+ * Pages and hooks depend on this interface only. Phase 24C ships a preview
+ * adapter; Phase 24D adds an adapter over `/api/v1` implementing the same
+ * surface. There are deliberately no methods that issue grants, change pack
+ * trust, verify results or run tools: the browser can only *ask* the backend
+ * (`submitSpineRequest`) and *display* what it answers.
  */
-const useMock = import.meta.env.VITE_USE_MOCK !== 'false'
+export interface CyberosApi {
+  readonly mode: 'preview' | 'live'
 
-export const api: ApiClient = useMock ? mockApiClient : mockApiClient
+  dashboard(): Promise<DashboardSummary>
+  system(): Promise<SystemInfo>
 
-export function isMockMode(): boolean {
-  return useMock
+  projects(): Promise<Project[]>
+  scopes(projectId?: string): Promise<Scope[]>
+  tasks(projectId?: string): Promise<Task[]>
+
+  /** Ask the control plane to evaluate and (if allowed) run a request. */
+  submitSpineRequest(req: SpineRequest): Promise<SpineTrace>
+
+  workers(): Promise<Worker[]>
+  assignments(): Promise<Assignment[]>
+
+  packs(): Promise<Pack[]>
+
+  assets(): Promise<Asset[]>
+  findings(): Promise<Finding[]>
+  cases(): Promise<CaseItem[]>
+  reports(): Promise<Report[]>
+
+  audit(): Promise<AuditEvent[]>
 }

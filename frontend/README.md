@@ -1,36 +1,15 @@
 # CYBEROS Frontend
 
-Thin, **non-authoritative** operator console.
-
-## Stack
-
-Vite · React · TypeScript · Tailwind CSS · React Router · Lucide
-
-## Commands
+Non-authoritative operator console and public site. TypeScript · React · Vite · React Router · lucide-react.
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
+npm run dev        # http://localhost:5173 (proxies /api to :8080)
+npm run typecheck
+npm run lint
 npm run build
 ```
 
-## Architecture
+Runs on a **preview adapter** (`src/api/preview.ts`) until Phase 24D wires the live `/api/v1` adapter behind the same `CyberosApi` interface. The browser never issues grants, decides authorisation, changes trust, verifies results or runs tools.
 
-```
-UI → src/api/client.ts → MOCK adapter (default) → fixtures
-                      ↘ future: /api/v1 → Go services → Security spine
-```
-
-Default is **Development · Mock API**. Do not treat MOCK decisions, grants, or executions as live infrastructure control.
-
-## Security rules
-
-- No Grant minting in the browser  
-- No Trust mutation authority  
-- No Broker / Host / Executor implementation  
-- No private keys or raw credentials  
-- Integrity ≠ Signature ≠ Trust ≠ Authorization ≠ Execution  
-
-## Status
-
-Phase **24B** UI foundation — **PARTIAL** relative to production. Real API integration is **24C (DEFERRED)**.
+See `../docs/FRONTEND_REBUILD.md` for architecture, routes and limitations.

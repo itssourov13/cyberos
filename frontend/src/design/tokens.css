@@ -1,0 +1,111 @@
+/* CYBEROS design tokens — "SPINE" design language.
+   One phosphor accent, semantic hues for each link of the execution chain. */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #07090d;
+  --bg-elev: #0b0f15;
+  --surface: #0e131a;
+  --surface-2: #131a23;
+  --surface-3: #19222d;
+  --line: #1c2531;
+  --line-strong: #2a3646;
+  --text: #e8edf4;
+  --text-2: #a7b2c3;
+  --text-3: #6f7c90;
+  --text-inverse: #04110c;
+
+  --accent: #4df0b4;
+  --accent-dim: rgba(77, 240, 180, 0.14);
+  --accent-line: rgba(77, 240, 180, 0.38);
+  --grant: #ffb547;
+  --grant-dim: rgba(255, 181, 71, 0.14);
+  --trust: #8f95ff;
+  --trust-dim: rgba(143, 149, 255, 0.15);
+  --evidence: #5cd2ff;
+  --evidence-dim: rgba(92, 210, 255, 0.14);
+  --danger: #ff5d6c;
+  --danger-dim: rgba(255, 93, 108, 0.14);
+  --warn: #ffb547;
+  --warn-dim: rgba(255, 181, 71, 0.14);
+  --ok: #4df0b4;
+  --ok-dim: rgba(77, 240, 180, 0.14);
+  --info: #6aa8ff;
+  --info-dim: rgba(106, 168, 255, 0.14);
+
+  --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 24px 64px rgba(0, 0, 0, 0.55);
+  --glow: 0 0 0 1px var(--accent-line), 0 0 32px rgba(77, 240, 180, 0.18);
+  --grid-line: rgba(255, 255, 255, 0.035);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f4f6f9;
+  --bg-elev: #eef1f5;
+  --surface: #ffffff;
+  --surface-2: #f6f8fb;
+  --surface-3: #eaeef3;
+  --line: #dde3ea;
+  --line-strong: #c3ccd7;
+  --text: #0c1219;
+  --text-2: #3d4a5c;
+  --text-3: #6a778a;
+  --text-inverse: #ffffff;
+
+  --accent: #04936a;
+  --accent-dim: rgba(4, 147, 106, 0.1);
+  --accent-line: rgba(4, 147, 106, 0.4);
+  --grant: #b86e00;
+  --grant-dim: rgba(184, 110, 0, 0.1);
+  --trust: #4a50d6;
+  --trust-dim: rgba(74, 80, 214, 0.1);
+  --evidence: #0a7ea8;
+  --evidence-dim: rgba(10, 126, 168, 0.1);
+  --danger: #cc2338;
+  --danger-dim: rgba(204, 35, 56, 0.09);
+  --warn: #b86e00;
+  --warn-dim: rgba(184, 110, 0, 0.1);
+  --ok: #04936a;
+  --ok-dim: rgba(4, 147, 106, 0.1);
+  --info: #1f62c4;
+  --info-dim: rgba(31, 98, 196, 0.1);
+
+  --shadow-1: 0 1px 2px rgba(12, 18, 25, 0.06), 0 6px 18px rgba(12, 18, 25, 0.06);
+  --shadow-2: 0 24px 56px rgba(12, 18, 25, 0.18);
+  --glow: 0 0 0 1px var(--accent-line), 0 0 28px rgba(4, 147, 106, 0.14);
+  --grid-line: rgba(12, 18, 25, 0.05);
+}
+
+:root {
+  --font-sans: 'Inter Variable', Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, 'Liberation Mono', monospace;
+  --font-display: 'Space Grotesk', 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif;
+
+  --r-1: 4px;
+  --r-2: 8px;
+  --r-3: 12px;
+  --r-4: 18px;
+  --r-pill: 999px;
+
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 72px;
+  --s-9: 112px;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-1: 120ms;
+  --dur-2: 220ms;
+  --dur-3: 480ms;
+  --dur-4: 900ms;
+
+  --sidebar-w: 248px;
+  --topbar-h: 56px;
+  --site-max: 1200px;
+}

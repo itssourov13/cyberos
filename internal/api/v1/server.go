@@ -157,11 +157,18 @@ func (s *Server) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	principal, ok := s.bindPrincipal(w, r, contracts.PrincipalID(body.PrincipalID))
+	if !ok {
+		return
+	}
+	if !enforceProject(w, r, contracts.ProjectID(body.ProjectID)) {
+		return
+	}
 	if body.CorrelationID == "" {
 		body.CorrelationID = "api-" + time.Now().UTC().Format("20060102T150405")
 	}
 	d, err := s.SDK.Evaluate(r.Context(), controlplane.EvaluateRequest{
-		PrincipalID:     contracts.PrincipalID(body.PrincipalID),
+		PrincipalID:     principal,
 		ProjectID:       contracts.ProjectID(body.ProjectID),
 		ScopeID:         contracts.ScopeID(body.ScopeID),
 		TaskID:          contracts.TaskID(body.TaskID),
@@ -195,11 +202,18 @@ func (s *Server) handleGrants(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	principal, ok := s.bindPrincipal(w, r, contracts.PrincipalID(body.PrincipalID))
+	if !ok {
+		return
+	}
+	if !enforceProject(w, r, contracts.ProjectID(body.ProjectID)) {
+		return
+	}
 	if body.CorrelationID == "" {
 		body.CorrelationID = "api-grant-" + time.Now().UTC().Format("20060102T150405")
 	}
 	g, d, err := s.SDK.IssueGrant(r.Context(), controlplane.EvaluateRequest{
-		PrincipalID:   contracts.PrincipalID(body.PrincipalID),
+		PrincipalID:   principal,
 		ProjectID:     contracts.ProjectID(body.ProjectID),
 		ScopeID:       contracts.ScopeID(body.ScopeID),
 		TaskID:        contracts.TaskID(body.TaskID),
@@ -228,6 +242,13 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	// A grant is only usable by the principal it was issued to, within the caller's project scope.
+	if !s.requireGrantOwner(w, r, body.Grant) {
+		return
+	}
+	if !enforceProject(w, r, body.Grant.ProjectID) {
 		return
 	}
 	res, err := s.SDK.Execute(body.Grant, body.Parameters)

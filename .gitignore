@@ -61,3 +61,6 @@ Thumbs.db
 
 # Local state that should not be committed
 state/local/
+
+# Private local audit notes (never commit)
+.local-audit/

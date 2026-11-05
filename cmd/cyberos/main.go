@@ -31,7 +31,7 @@ func main() {
 func runServe(cfg *config.Config) {
 	addr := cfg.APIAddr
 	if addr == "" {
-		addr = ":8080"
+		addr = config.DefaultAPIAddr
 	}
 	ctx := context.Background()
 
@@ -55,6 +55,12 @@ func runServe(cfg *config.Config) {
 	} else {
 		client = sdk.NewInMemory()
 		fmt.Fprintf(os.Stderr, "CYBEROS mode: development (in-memory)\n")
+	}
+
+	// Fail closed: a network-accessible listener must have mandatory authentication.
+	if err := config.ValidateListenSecurity(addr, cfg.AuthRequired || cfg.Env == "production"); err != nil {
+		fmt.Fprintf(os.Stderr, "unsafe server configuration (fail-closed): %v\n", err)
+		os.Exit(1)
 	}
 
 	srv := apiv1.NewServer(client)
@@ -87,7 +93,15 @@ func runServe(cfg *config.Config) {
 	}
 
 	fmt.Fprintf(os.Stderr, "CYBEROS API v1 listening on %s\n", addr)
-	if err := http.ListenAndServe(addr, srv.Handler()); err != nil {
+	httpSrv := &http.Server{
+		Addr:              addr,
+		Handler:           srv.Handler(),
+		ReadHeaderTimeout: cfg.APIReadHeaderTimeout,
+		ReadTimeout:       cfg.APIReadTimeout,
+		WriteTimeout:      cfg.APIWriteTimeout,
+		IdleTimeout:       cfg.APIIdleTimeout,
+	}
+	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)
 	}

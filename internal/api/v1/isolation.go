@@ -68,3 +68,37 @@ func requireProjectScope(w http.ResponseWriter, r *http.Request) (contracts.Proj
 	}
 	return p, true
 }
+
+// bindPrincipal resolves the authoritative principal for a request.
+//
+// When authentication is enabled the authenticated identity from the request
+// context is the only accepted identity: a body-supplied principal that differs
+// from it is rejected (403) and an omitted one is filled in from the context.
+// When authentication is disabled (explicit development mode) the requested
+// value is passed through unchanged.
+func (s *Server) bindPrincipal(w http.ResponseWriter, r *http.Request, requested contracts.PrincipalID) (contracts.PrincipalID, bool) {
+	if p, ok := auth.PrincipalFromContext(r.Context()); ok {
+		if requested != "" && requested != p.ID {
+			writeErr(w, http.StatusForbidden, "principal_id does not match the authenticated principal")
+			return "", false
+		}
+		return p.ID, true
+	}
+	if s.Auth != nil {
+		// Auth is enabled but no identity reached the handler: fail closed.
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return "", false
+	}
+	return requested, true
+}
+
+// requireGrantOwner ensures the caller presenting a grant is the principal it was issued to.
+// In development mode without auth the check is skipped (same as bindPrincipal).
+func (s *Server) requireGrantOwner(w http.ResponseWriter, r *http.Request, grant contracts.ExecutionGrant) bool {
+	if _, ok := auth.PrincipalFromContext(r.Context()); ok && grant.Principal.ID == "" {
+		writeErr(w, http.StatusForbidden, "grant has no principal")
+		return false
+	}
+	_, ok := s.bindPrincipal(w, r, grant.Principal.ID)
+	return ok
+}

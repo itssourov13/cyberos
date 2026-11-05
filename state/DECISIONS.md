@@ -37,3 +37,13 @@
 **Decision:** Go module path is `cyberos` for the foundation phase.
 
 **Rationale:** Simple and self-contained. Can be changed to a full module path (e.g. github.com/…) later if the project is published.
+
+
+## Phase 24C frontend decisions
+- **Design language "SPINE"**: dark-first, phosphor accent, semantic hue per spine link; hand-written CSS tokens, no Tailwind (instructions allowed CSS or Tailwind; fewer deps, no install needed).
+- **Single API seam** `CyberosApi`; no grant/trust/verify/execute methods exist by design.
+- **Preview adapter in one file** (`api/preview.ts`) to delete in 24D; UI labels preview mode everywhere.
+- **Sign-in is inert** (disabled fields) rather than faking auth.
+- **Derived views** (assessments, decisions, grants, execution, provenance, risk) built from existing fixtures to avoid inventing backend contracts; documented as deferred.
+- **Static embed**: replaced old dashboard with a minimal placeholder `index.html` to satisfy `//go:embed static/*`.
+- **Code-splitting**: every page lazy-loaded via `app/router.tsx`.
